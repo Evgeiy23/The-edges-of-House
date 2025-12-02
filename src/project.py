@@ -44,3 +44,39 @@ class ProjectSettings:
         NUM_HALLS = 2
         SIDE_CORRIDOR_CHANCE = 0.4
         ROOMS_PER_SIDE_CORRIDOR = 3
+
+    class Settings:
+        RESOLUTIONS = [
+            (1920, 1080),
+            (1680, 1050),
+            (1600, 900),
+            (1440, 900),
+            (1366, 768),
+            (1280, 720),
+            (1024, 768),
+            (800, 600)
+        ]
+
+        WINDOW_MODE_FULLSCREEN = "fullscreen"
+        WINDOW_MODE_FULLSCREEN_WINDOWED = "fullscreen_windowed"
+        WINDOW_MODE_WINDOWED = "windowed"
+        WINDOW_MODES = [
+            WINDOW_MODE_FULLSCREEN,
+            WINDOW_MODE_FULLSCREEN_WINDOWED,
+            WINDOW_MODE_WINDOWED
+        ]
+
+        DEFAULT_RESOLUTION_INDEX = 0
+        DEFAULT_WINDOW_MODE = WINDOW_MODE_FULLSCREEN
+        DEFAULT_SOUNDS_FOLDER = "resources/sounds"
+        DEFAULT_SOUND_VOLUME = 1.0
+        DEFAULT_MUSIC_VOLUME = 1.0
+
+        SETTINGS_PANEL_WIDTH = 800
+        SETTINGS_PANEL_HEIGHT = 600
+        BUTTON_WIDTH = 250
+        BUTTON_HEIGHT = 50
+        SLIDER_WIDTH = 300
+        SLIDER_HEIGHT = 30
+        LABEL_FONT_SIZE = 18
+        BUTTON_FONT_SIZE = 16
