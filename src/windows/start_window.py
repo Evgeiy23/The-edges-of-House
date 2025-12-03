@@ -93,6 +93,35 @@ class StartWindow(arcade.View):
         except Exception:
             return 1920, 1080
 
+    def find_music_file(self, preferred_filename=None, folder_path=None):
+        if folder_path is None:
+            folder_path = ProjectSettings.Settings.DEFAULT_SOUNDS_FOLDER
+
+        if not os.path.exists(folder_path):
+            return None
+
+        valid_extensions = ['.mp3', '.wav', '.ogg', '.flac', '.m4a']
+
+        if preferred_filename:
+            preferred_path = os.path.join(folder_path, preferred_filename)
+            if os.path.isfile(preferred_path):
+                return preferred_path
+
+        music_files = []
+        try:
+            for file in os.listdir(folder_path):
+                file_path = os.path.join(folder_path, file)
+                if os.path.isfile(file_path):
+                    ext = os.path.splitext(file)[1].lower()
+                    if ext in valid_extensions:
+                        music_files.append(file_path)
+        except Exception:
+            return None
+
+        if music_files:
+            return music_files[0]
+        return None
+
     def setup_ui(self):
         settings = ProjectSettings.StartWindow
 
@@ -543,17 +572,19 @@ class StartWindow(arcade.View):
 
                     window_mode = config.get('window_mode', None)
                     if window_mode:
-                        if window_mode == ProjectSettings.Settings.WINDOW_MODE_FULLSCREEN:
+                        if window_mode == ProjectSettings.Settings.WINDOW_MODE_FULLSCREEN or window_mode == "fullscreen":
                             self.current_mode_index = 0
-                        elif window_mode == ProjectSettings.Settings.WINDOW_MODE_FULLSCREEN_WINDOWED:
+                        elif window_mode == ProjectSettings.Settings.WINDOW_MODE_FULLSCREEN_WINDOWED or window_mode == "fullscreen_windowed":
                             self.current_mode_index = 1
-                        else:
+                        elif window_mode == ProjectSettings.Settings.WINDOW_MODE_WINDOWED or window_mode == "windowed":
                             self.current_mode_index = 2
 
-                    self.music_volume = config.get(
-                        'music_volume', self.music_volume)
-                    self.sound_volume = config.get(
-                        'sound_volume', self.sound_volume)
+                    music_vol = config.get('music_volume', None)
+                    if music_vol is not None:
+                        self.music_volume = float(music_vol)
+                    sound_vol = config.get('sound_volume', None)
+                    if sound_vol is not None:
+                        self.sound_volume = float(sound_vol)
 
             except Exception as e:
                 print(f"Ошибка загрузки настроек: {e}")
@@ -572,12 +603,9 @@ class StartWindow(arcade.View):
             print(f"Ошибка сохранения настроек: {e}")
 
     def play_settings_music(self):
-        path = ProjectSettings.StartWindow.SETTINGS_MUSIC_FILE
+        path = self.find_music_file("НТР - Теорема Лагранжа (Mix&Master).mp3")
         if not path:
             return
-        if not os.path.isabs(path):
-            base_dir = os.path.dirname(os.path.dirname(__file__))
-            path = os.path.join(base_dir, path)
 
         ext = os.path.splitext(path)[1].lower()
         try:
@@ -620,12 +648,9 @@ class StartWindow(arcade.View):
             self.settings_player = None
 
     def play_main_music(self):
-        path = ProjectSettings.StartWindow.MAIN_MUSIC_FILE
+        path = self.find_music_file("scary-horror-music-437662.mp3")
         if not path:
             return
-        if not os.path.isabs(path):
-            base_dir = os.path.dirname(os.path.dirname(__file__))
-            path = os.path.join(base_dir, path)
         ext = os.path.splitext(path)[1].lower()
         try:
             if ext in ".mp3":
@@ -641,10 +666,17 @@ class StartWindow(arcade.View):
             pass
         try:
             self.main_music_sound = arcade.Sound(path)
-            self.main_music_player = self.main_music_sound.play(loop=True)
+            self.main_music_player = self.main_music_sound.play(
+                loop=True, volume=self.music_volume)
         except Exception:
-            self.main_music_sound = None
-            self.main_music_player = None
+            try:
+                self.main_music_sound = arcade.Sound(path)
+                self.main_music_player = self.main_music_sound.play(loop=True)
+                if hasattr(self.main_music_player, 'volume'):
+                    self.main_music_player.volume = self.music_volume
+            except Exception:
+                self.main_music_sound = None
+                self.main_music_player = None
 
     def pause_main_music(self):
         if self.main_music_player:
