@@ -5,15 +5,12 @@ import pyglet
 from project import ProjectSettings
 
 
-class StartWindow(arcade.Window):
+class StartWindow(arcade.View):
     def __init__(self):
-        super().__init__(
-            fullscreen=ProjectSettings.FULLSCREEN,
-            title=ProjectSettings.WINDOW_TITLE
-        )
+        super().__init__()
 
-        self.screen_width = self.width
-        self.screen_height = self.height
+        self.screen_width = 0
+        self.screen_height = 0
 
         self.manager = arcade.gui.UIManager()
         self.manager.enable()
@@ -57,17 +54,7 @@ class StartWindow(arcade.Window):
         self.title_y = 0
 
         self.background_list = arcade.SpriteList()
-        try:
-            background_sprite = arcade.Sprite(
-                ProjectSettings.StartWindow.BACKGROUND_IMAGE)
-            background_sprite.center_x = self.screen_width // 2
-            background_sprite.center_y = self.screen_height // 2
-            scale_x = self.screen_width / background_sprite.width
-            scale_y = self.screen_height / background_sprite.height
-            background_sprite.scale = max(scale_x, scale_y)
-            self.background_list.append(background_sprite)
-        except:
-            pass
+        self.background_sprite = None
 
         self.setup_ui()
         self.play_main_music()
@@ -119,14 +106,14 @@ class StartWindow(arcade.Window):
         )
         self.manager.add(anchor_layout)
 
-        self.title_x = self.screen_width // 2
-        self.title_y = self.screen_height // 2 + \
-            settings.TITLE_TOP_OFFSET + 150
+        self.title_x = 0
+        self.title_y = 0
 
     def on_start_click(self, event):
         self.start_game = True
 
     def on_settings_click(self, event):
+<<<<<<< HEAD
         self.show_settings = True
         self.manager.clear()
         self.setup_settings_ui()
@@ -135,6 +122,11 @@ class StartWindow(arcade.Window):
         except Exception:
             pass
         self.play_settings_music()
+=======
+        from windows.settings_window import SettingsView
+        settings_view = SettingsView(self)
+        self.window.show_view(settings_view)
+>>>>>>> 4a3157e56aa91ba48aa14432b7252ce77671d624
 
     def on_exit_click(self, event):
         arcade.exit()
@@ -219,6 +211,41 @@ class StartWindow(arcade.Window):
                     anchor_y="center",
                     bold=True
                 )
+
+    def on_show_view(self):
+        self.manager.enable()
+        arcade.set_background_color(ProjectSettings.BACKGROUND_COLOR)
+        if self.window:
+            if not self.window.fullscreen:
+                try:
+                    self.window.set_size(self.window.width, self.window.height)
+                except:
+                    pass
+
+            self.screen_width = self.window.width
+            self.screen_height = self.window.height
+
+            settings = ProjectSettings.StartWindow
+            self.title_x = self.screen_width // 2
+            self.title_y = self.screen_height // 2 + settings.TITLE_TOP_OFFSET + 150
+
+            if self.background_sprite is None:
+                try:
+                    self.background_sprite = arcade.Sprite(
+                        ProjectSettings.StartWindow.BACKGROUND_IMAGE)
+                    self.background_list.append(self.background_sprite)
+                except:
+                    pass
+
+            if self.background_sprite:
+                self.background_sprite.center_x = self.screen_width // 2
+                self.background_sprite.center_y = self.screen_height // 2
+                scale_x = self.screen_width / self.background_sprite.width
+                scale_y = self.screen_height / self.background_sprite.height
+                self.background_sprite.scale = max(scale_x, scale_y)
+
+    def on_hide_view(self):
+        self.manager.disable()
 
     def on_update(self, delta_time):
         if self.show_settings and self.music_volume_slider:
