@@ -27,6 +27,13 @@ class ProjectSettings:
         BUTTON_SETTINGS_TEXT = "Настройки"
         BUTTON_EXIT_TEXT = "Выйти из игры"
 
+        SETTINGS_TITLE_TEXT = "Настройки игры"
+        SETTINGS_CLOSE_TEXT = "Закрыть"
+        SETTINGS_PANEL_WIDTH = 700
+        SETTINGS_PANEL_HEIGHT = 400
+        SETTINGS_MUSIC_FILE = "/Users/evgen/Desktop/The-edges-of-House/music/НТР - Теорема Лагранжа (Mix&Master).mp3"
+        MAIN_MUSIC_FILE = "/Users/evgen/Desktop/The-edges-of-House/music/scary-horror-music-437662.mp3"
+
     class Game:
         SCREEN_WIDTH = 1024
         SCREEN_HEIGHT = 768
