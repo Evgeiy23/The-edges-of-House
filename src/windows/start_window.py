@@ -1,6 +1,7 @@
 import arcade
 import arcade.gui
 import os
+import json
 import pyglet
 from project import ProjectSettings
 
@@ -23,28 +24,27 @@ class StartWindow(arcade.View):
         self.main_music_sound = None
         self.main_music_player = None
 
-        self.available_resolutions = [
-            (800, 600), (1024, 768), (1280, 720), (1600, 900), (1920, 1080)
-        ]
+        self.available_resolutions = self.get_available_resolutions()
         try:
             current_w, current_h = self.get_size()
             if (current_w, current_h) in self.available_resolutions:
-                self.current_resolution_index = self.available_resolutions.index((current_w, current_h))
+                self.current_resolution_index = self.available_resolutions.index(
+                    (current_w, current_h))
             else:
-                self.current_resolution_index = 1
+                self.current_resolution_index = 0
         except Exception:
-            self.current_resolution_index = 1
+            self.current_resolution_index = 0
 
-        self.display_modes = ["Полноэкранный", "Полноэкранный в окне", "В окне"]
+        self.display_modes = ["Полноэкранный",
+                              "Полноэкранный в окне", "В окне"]
         self.current_mode_index = 0 if ProjectSettings.FULLSCREEN else 2
 
-        
         self.music_volume = 1.0
         self.sound_volume = 1.0
 
         self.res_label = None
         self.mode_label = None
-        
+
         self.music_volume_slider = None
         self.sound_volume_slider = None
 
@@ -57,7 +57,41 @@ class StartWindow(arcade.View):
         self.background_sprite = None
 
         self.setup_ui()
+        self.load_settings()
         self.play_main_music()
+
+    def get_available_resolutions(self):
+        try:
+            display = pyglet.display.get_display()
+            screen = display.get_default_screen()
+            modes = screen.get_modes()
+
+            resolutions = []
+            seen = set()
+            for mode in modes:
+                res = (mode.width, mode.height)
+                if res not in seen:
+                    seen.add(res)
+                    resolutions.append(res)
+
+            resolutions.sort(key=lambda x: x[0] * x[1], reverse=True)
+
+            if not resolutions:
+                current_res = (screen.width, screen.height)
+                resolutions = [current_res]
+
+            return resolutions
+        except Exception as e:
+            print(f"Ошибка получения разрешений: {e}")
+            return ProjectSettings.Settings.RESOLUTIONS
+
+    def get_native_resolution(self):
+        try:
+            display = pyglet.display.get_display()
+            screen = display.get_default_screen()
+            return screen.width, screen.height
+        except Exception:
+            return 1920, 1080
 
     def setup_ui(self):
         settings = ProjectSettings.StartWindow
@@ -113,7 +147,6 @@ class StartWindow(arcade.View):
         self.start_game = True
 
     def on_settings_click(self, event):
-<<<<<<< HEAD
         self.show_settings = True
         self.manager.clear()
         self.setup_settings_ui()
@@ -122,11 +155,6 @@ class StartWindow(arcade.View):
         except Exception:
             pass
         self.play_settings_music()
-=======
-        from windows.settings_window import SettingsView
-        settings_view = SettingsView(self)
-        self.window.show_view(settings_view)
->>>>>>> 4a3157e56aa91ba48aa14432b7252ce77671d624
 
     def on_exit_click(self, event):
         arcade.exit()
@@ -172,14 +200,17 @@ class StartWindow(arcade.View):
 
             left, right = 0, self.width
             bottom, top = 0, self.height
-            arcade.draw_lrbt_rectangle_filled(left, right, bottom, top, (0, 0, 0, 160))
+            arcade.draw_lrbt_rectangle_filled(
+                left, right, bottom, top, (0, 0, 0, 160))
 
             left = center_x - panel_w // 2
             right = center_x + panel_w // 2
             bottom = center_y - panel_h // 2
             top = center_y + panel_h // 2
-            arcade.draw_lrbt_rectangle_filled(left, right, bottom, top, (30, 30, 30, 240))
-            arcade.draw_lrbt_rectangle_outline(left, right, bottom, top, arcade.color.WHITE, border_width=2)
+            arcade.draw_lrbt_rectangle_filled(
+                left, right, bottom, top, (30, 30, 30, 240))
+            arcade.draw_lrbt_rectangle_outline(
+                left, right, bottom, top, arcade.color.WHITE, border_width=2)
 
             title = ProjectSettings.StartWindow.SETTINGS_TITLE_TEXT
             arcade.draw_text(
@@ -237,17 +268,51 @@ class StartWindow(arcade.View):
                 except:
                     pass
 
-            if self.background_sprite:
-                self.background_sprite.center_x = self.screen_width // 2
-                self.background_sprite.center_y = self.screen_height // 2
-                scale_x = self.screen_width / self.background_sprite.width
-                scale_y = self.screen_height / self.background_sprite.height
-                self.background_sprite.scale = max(scale_x, scale_y)
+            self.update_background_scale()
+
+            if hasattr(self, 'main_music_player') and self.main_music_player:
+                try:
+                    self.main_music_player.volume = self.music_volume
+                except:
+                    pass
+
+    def update_background_scale(self):
+        if self.background_sprite and self.window and self.background_sprite.texture:
+            self.screen_width = self.window.width
+            self.screen_height = self.window.height
+            self.background_sprite.center_x = self.screen_width // 2
+            self.background_sprite.center_y = self.screen_height // 2
+
+            original_width = self.background_sprite.texture.width
+            original_height = self.background_sprite.texture.height
+
+            scale_x = self.screen_width / original_width
+            scale_y = self.screen_height / original_height
+            self.background_sprite.scale = max(scale_x, scale_y)
+
+    def on_resize(self, width, height):
+        self.screen_width = width
+        self.screen_height = height
+        self.update_background_scale()
+        settings = ProjectSettings.StartWindow
+        self.title_x = self.screen_width // 2
+        self.title_y = self.screen_height // 2 + settings.TITLE_TOP_OFFSET + 150
 
     def on_hide_view(self):
         self.manager.disable()
 
     def on_update(self, delta_time):
+        if self.window:
+            current_width = self.window.width
+            current_height = self.window.height
+            if current_width != self.screen_width or current_height != self.screen_height:
+                self.screen_width = current_width
+                self.screen_height = current_height
+                self.update_background_scale()
+                settings = ProjectSettings.StartWindow
+                self.title_x = self.screen_width // 2
+                self.title_y = self.screen_height // 2 + settings.TITLE_TOP_OFFSET + 150
+
         if self.show_settings and self.music_volume_slider:
             try:
                 v = (self.music_volume_slider.value or 0) / 100.0
@@ -271,13 +336,13 @@ class StartWindow(arcade.View):
         spacing = s.BUTTON_SPACING
         label_h = s.BUTTON_FONT_SIZE + 12
         row_h = s.BUTTON_HEIGHT
-        
+
         slider_h = 24
         items_h = (
             label_h +
             label_h + row_h +
             label_h + row_h +
-            
+
             label_h + slider_h +
             label_h + slider_h +
             row_h + row_h
@@ -290,60 +355,83 @@ class StartWindow(arcade.View):
 
     def setup_settings_ui(self):
         s = ProjectSettings.StartWindow
-        v_box = arcade.gui.UIBoxLayout(vertical=True, space_between=s.BUTTON_SPACING)
+        v_box = arcade.gui.UIBoxLayout(
+            vertical=True, space_between=s.BUTTON_SPACING)
 
         v_box.add(arcade.gui.UILabel(text=""))
-        res_title = arcade.gui.UILabel(text="Разрешение", text_color=arcade.color.WHITE)
+        res_title = arcade.gui.UILabel(
+            text="Разрешение", text_color=arcade.color.WHITE)
         v_box.add(res_title)
 
         res_row = arcade.gui.UIBoxLayout(vertical=False, space_between=20)
-        res_left = arcade.gui.UIFlatButton(text="", width=60, height=s.BUTTON_HEIGHT)
+        res_left = arcade.gui.UIFlatButton(
+            text="", width=60, height=s.BUTTON_HEIGHT)
         res_left.on_click = self.on_resolution_left
-        res_right = arcade.gui.UIFlatButton(text="", width=60, height=s.BUTTON_HEIGHT)
+        res_right = arcade.gui.UIFlatButton(
+            text="", width=60, height=s.BUTTON_HEIGHT)
         res_right.on_click = self.on_resolution_right
-        self.res_label = arcade.gui.UILabel(text=self.resolution_text(), text_color=arcade.color.LIGHT_GRAY)
+        self.res_label = arcade.gui.UILabel(
+            text=self.resolution_text(), text_color=arcade.color.LIGHT_GRAY)
         res_row.add(res_left)
         res_row.add(self.res_label)
         res_row.add(res_right)
         v_box.add(res_row)
 
-        mode_title = arcade.gui.UILabel(text="Режим экрана", text_color=arcade.color.WHITE)
+        mode_title = arcade.gui.UILabel(
+            text="Режим экрана", text_color=arcade.color.WHITE)
         v_box.add(mode_title)
 
         mode_row = arcade.gui.UIBoxLayout(vertical=False, space_between=20)
-        mode_left = arcade.gui.UIFlatButton(text="", width=60, height=s.BUTTON_HEIGHT)
+        mode_left = arcade.gui.UIFlatButton(
+            text="", width=60, height=s.BUTTON_HEIGHT)
         mode_left.on_click = self.on_mode_left
-        mode_right = arcade.gui.UIFlatButton(text="", width=60, height=s.BUTTON_HEIGHT)
+        mode_right = arcade.gui.UIFlatButton(
+            text="", width=60, height=s.BUTTON_HEIGHT)
         mode_right.on_click = self.on_mode_right
-        self.mode_label = arcade.gui.UILabel(text=self.mode_text(), text_color=arcade.color.LIGHT_GRAY)
+        self.mode_label = arcade.gui.UILabel(
+            text=self.mode_text(), text_color=arcade.color.LIGHT_GRAY)
         mode_row.add(mode_left)
         mode_row.add(self.mode_label)
         mode_row.add(mode_right)
         v_box.add(mode_row)
 
-        music_title = arcade.gui.UILabel(text="Громкость музыки", text_color=arcade.color.WHITE)
+        music_title = arcade.gui.UILabel(
+            text="Громкость музыки", text_color=arcade.color.WHITE)
         v_box.add(music_title)
-        self.music_volume_slider = arcade.gui.UISlider(value=int(self.music_volume * 100), width=400)
+        self.music_volume_slider = arcade.gui.UISlider(
+            value=int(self.music_volume * 100), width=400)
         v_box.add(self.music_volume_slider)
 
-        sound_title = arcade.gui.UILabel(text="Громкость звуков", text_color=arcade.color.WHITE)
+        sound_title = arcade.gui.UILabel(
+            text="Громкость звуков", text_color=arcade.color.WHITE)
         v_box.add(sound_title)
-        self.sound_volume_slider = arcade.gui.UISlider(value=int(self.sound_volume * 100), width=400)
+        self.sound_volume_slider = arcade.gui.UISlider(
+            value=int(self.sound_volume * 100), width=400)
         v_box.add(self.sound_volume_slider)
 
-        apply_button = arcade.gui.UIFlatButton(text="", width=s.BUTTON_WIDTH, height=s.BUTTON_HEIGHT)
+        if self.res_label:
+            self.res_label.text = self.resolution_text()
+        if self.mode_label:
+            self.mode_label.text = self.mode_text()
+
+        apply_button = arcade.gui.UIFlatButton(
+            text="", width=s.BUTTON_WIDTH, height=s.BUTTON_HEIGHT)
         apply_button.on_click = self.on_apply_settings_click
         v_box.add(apply_button)
 
-        close_button = arcade.gui.UIFlatButton(text="", width=s.BUTTON_WIDTH, height=s.BUTTON_HEIGHT)
+        close_button = arcade.gui.UIFlatButton(
+            text="", width=s.BUTTON_WIDTH, height=s.BUTTON_HEIGHT)
         close_button.on_click = self.on_close_settings_click
         v_box.add(close_button)
 
-        self.buttons = [apply_button, close_button, res_left, res_right, mode_left, mode_right]
-        self.button_texts = ["Сохранить", s.SETTINGS_CLOSE_TEXT, "<", ">", "<", ">"]
+        self.buttons = [apply_button, close_button,
+                        res_left, res_right, mode_left, mode_right]
+        self.button_texts = ["Сохранить",
+                             s.SETTINGS_CLOSE_TEXT, "<", ">", "<", ">"]
 
         anchor_layout = arcade.gui.UIAnchorLayout()
-        anchor_layout.add(child=v_box, anchor_x="center_x", anchor_y="center_y")
+        anchor_layout.add(child=v_box, anchor_x="center_x",
+                          anchor_y="center_y")
         self.manager.add(anchor_layout)
 
     def on_close_settings_click(self, event):
@@ -365,24 +453,29 @@ class StartWindow(arcade.View):
             except Exception:
                 pass
         self.apply_display_settings()
+        self.save_settings()
 
     def on_resolution_left(self, event):
-        self.current_resolution_index = (self.current_resolution_index - 1) % len(self.available_resolutions)
+        self.current_resolution_index = (
+            self.current_resolution_index - 1) % len(self.available_resolutions)
         if self.res_label:
             self.res_label.text = self.resolution_text()
 
     def on_resolution_right(self, event):
-        self.current_resolution_index = (self.current_resolution_index + 1) % len(self.available_resolutions)
+        self.current_resolution_index = (
+            self.current_resolution_index + 1) % len(self.available_resolutions)
         if self.res_label:
             self.res_label.text = self.resolution_text()
 
     def on_mode_left(self, event):
-        self.current_mode_index = (self.current_mode_index - 1) % len(self.display_modes)
+        self.current_mode_index = (
+            self.current_mode_index - 1) % len(self.display_modes)
         if self.mode_label:
             self.mode_label.text = self.mode_text()
 
     def on_mode_right(self, event):
-        self.current_mode_index = (self.current_mode_index + 1) % len(self.display_modes)
+        self.current_mode_index = (
+            self.current_mode_index + 1) % len(self.display_modes)
         if self.mode_label:
             self.mode_label.text = self.mode_text()
 
@@ -394,55 +487,89 @@ class StartWindow(arcade.View):
         return self.display_modes[self.current_mode_index]
 
     def apply_display_settings(self):
+        if not self.window:
+            return
+
         mode = self.display_modes[self.current_mode_index]
         w, h = self.available_resolutions[self.current_resolution_index]
 
+        try:
+            if mode == "Полноэкранный":
+                self.window.set_fullscreen(True)
+            elif mode == "Полноэкранный в окне":
+                self.window.set_fullscreen(False)
+                native_width, native_height = self.get_native_resolution()
+                self.window.set_size(native_width, native_height)
+                self.window.set_location(0, 0)
+            else:
+                self.window.set_fullscreen(False)
+                self.window.set_size(w, h)
+                display = pyglet.display.get_display()
+                screen = display.get_default_screen()
+                x = (screen.width - w) // 2
+                y = (screen.height - h) // 2
+                self.window.set_location(x, y)
+
+            self.screen_width = self.window.width
+            self.screen_height = self.window.height
+            self.update_background_scale()
+
+            settings = ProjectSettings.StartWindow
+            self.title_x = self.screen_width // 2
+            self.title_y = self.screen_height // 2 + settings.TITLE_TOP_OFFSET + 150
+
+        except Exception as e:
+            print(f"Ошибка установки режима экрана: {e}")
+
+    def get_window_mode_string(self):
+        mode = self.display_modes[self.current_mode_index]
         if mode == "Полноэкранный":
-            try:
-                if pyglet and hasattr(self, "set_style"):
-                    self.set_style(pyglet.window.Window.WINDOW_STYLE_DEFAULT)
-            except Exception:
-                pass
-            try:
-                self.set_fullscreen(True)
-            except Exception:
-                pass
+            return ProjectSettings.Settings.WINDOW_MODE_FULLSCREEN
         elif mode == "Полноэкранный в окне":
-            try:
-                self.set_fullscreen(False)
-            except Exception:
-                pass
-            try:
-                if pyglet and hasattr(self, "set_style"):
-                    self.set_style(pyglet.window.Window.WINDOW_STYLE_BORDERLESS)
-            except Exception:
-                pass
-            try:
-                self.set_location(0, 0)
-            except Exception:
-                pass
-            try:
-                self.set_size(self.screen_width, self.screen_height)
-            except Exception:
-                pass
+            return ProjectSettings.Settings.WINDOW_MODE_FULLSCREEN_WINDOWED
         else:
+            return ProjectSettings.Settings.WINDOW_MODE_WINDOWED
+
+    def load_settings(self):
+        config_file = "config.json"
+        if os.path.exists(config_file):
             try:
-                self.set_fullscreen(False)
-            except Exception:
-                pass
-            try:
-                if pyglet and hasattr(self, "set_style"):
-                    self.set_style(pyglet.window.Window.WINDOW_STYLE_DEFAULT)
-            except Exception:
-                pass
-            try:
-                self.set_size(w, h)
-            except Exception:
-                pass
-            try:
-                self.set_location(100, 100)
-            except Exception:
-                pass
+                with open(config_file, 'r', encoding='utf-8') as f:
+                    config = json.load(f)
+
+                    saved_index = config.get('resolution_index', None)
+                    if saved_index is not None and 0 <= saved_index < len(self.available_resolutions):
+                        self.current_resolution_index = saved_index
+
+                    window_mode = config.get('window_mode', None)
+                    if window_mode:
+                        if window_mode == ProjectSettings.Settings.WINDOW_MODE_FULLSCREEN:
+                            self.current_mode_index = 0
+                        elif window_mode == ProjectSettings.Settings.WINDOW_MODE_FULLSCREEN_WINDOWED:
+                            self.current_mode_index = 1
+                        else:
+                            self.current_mode_index = 2
+
+                    self.music_volume = config.get(
+                        'music_volume', self.music_volume)
+                    self.sound_volume = config.get(
+                        'sound_volume', self.sound_volume)
+
+            except Exception as e:
+                print(f"Ошибка загрузки настроек: {e}")
+
+    def save_settings(self):
+        config = {
+            'resolution_index': self.current_resolution_index,
+            'window_mode': self.get_window_mode_string(),
+            'music_volume': self.music_volume,
+            'sound_volume': self.sound_volume
+        }
+        try:
+            with open("config.json", 'w', encoding='utf-8') as f:
+                json.dump(config, f, indent=2, ensure_ascii=False)
+        except Exception as e:
+            print(f"Ошибка сохранения настроек: {e}")
 
     def play_settings_music(self):
         path = ProjectSettings.StartWindow.SETTINGS_MUSIC_FILE

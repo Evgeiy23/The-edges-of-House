@@ -1,4 +1,5 @@
 import arcade
+import os
 
 
 class ProjectSettings:
@@ -31,8 +32,6 @@ class ProjectSettings:
         SETTINGS_CLOSE_TEXT = "Закрыть"
         SETTINGS_PANEL_WIDTH = 700
         SETTINGS_PANEL_HEIGHT = 400
-        SETTINGS_MUSIC_FILE = "/Users/evgen/Desktop/The-edges-of-House/music/НТР - Теорема Лагранжа (Mix&Master).mp3"
-        MAIN_MUSIC_FILE = "/Users/evgen/Desktop/The-edges-of-House/music/scary-horror-music-437662.mp3"
 
     class Game:
         SCREEN_WIDTH = 1024
@@ -53,17 +52,6 @@ class ProjectSettings:
         ROOMS_PER_SIDE_CORRIDOR = 3
 
     class Settings:
-        RESOLUTIONS = [
-            (1920, 1080),
-            (1680, 1050),
-            (1600, 900),
-            (1440, 900),
-            (1366, 768),
-            (1280, 720),
-            (1024, 768),
-            (800, 600)
-        ]
-
         WINDOW_MODE_FULLSCREEN = "fullscreen"
         WINDOW_MODE_FULLSCREEN_WINDOWED = "fullscreen_windowed"
         WINDOW_MODE_WINDOWED = "windowed"
@@ -75,7 +63,8 @@ class ProjectSettings:
 
         DEFAULT_RESOLUTION_INDEX = 0
         DEFAULT_WINDOW_MODE = WINDOW_MODE_FULLSCREEN
-        DEFAULT_SOUNDS_FOLDER = "resources/sounds"
+        DEFAULT_SOUNDS_FOLDER = os.path.join(os.path.dirname(
+            os.path.dirname(__file__)), "music")
         DEFAULT_SOUND_VOLUME = 1.0
         DEFAULT_MUSIC_VOLUME = 1.0
 
