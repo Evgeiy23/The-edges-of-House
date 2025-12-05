@@ -4,10 +4,11 @@ import json
 import pyglet
 from windows.start_window import StartWindow
 from project import ProjectSettings
+from utils import get_config_path
 
 
 def load_window_settings():
-    config_file = "config.json"
+    config_file = get_config_path()
 
     if os.path.exists(config_file):
         try:

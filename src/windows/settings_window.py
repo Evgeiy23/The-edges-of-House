@@ -4,6 +4,7 @@ import os
 import json
 import pyglet
 from project import ProjectSettings
+from utils import get_config_path
 
 
 class SettingsView(arcade.View):
@@ -444,7 +445,7 @@ class SettingsView(arcade.View):
         self.window.show_view(self.parent_view)
 
     def load_settings(self):
-        config_file = "config.json"
+        config_file = get_config_path()
         if os.path.exists(config_file):
             try:
                 with open(config_file, 'r', encoding='utf-8') as f:
@@ -486,7 +487,7 @@ class SettingsView(arcade.View):
             'custom_sounds': self.custom_sounds
         }
         try:
-            with open("config.json", 'w', encoding='utf-8') as f:
+            with open(get_config_path(), 'w', encoding='utf-8') as f:
                 json.dump(config, f, indent=2, ensure_ascii=False)
         except Exception as e:
             print(f"Ошибка сохранения настроек: {e}")

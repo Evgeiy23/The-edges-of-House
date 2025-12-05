@@ -39,9 +39,16 @@ class ProjectSettings:
         TILE_SIZE = 64
         PLAYER_SPEED = 5
         TILESET_TILE_SIZE = 32
+        FRAME_LIMIT_OPTIONS = ["unlimited", "240",
+                               "165", "144", "120", "60", "vsync"]
+        DEFAULT_FRAME_LIMIT = "240"
 
-        MAP_WIDTH_MULTIPLIER = 3
-        MAP_HEIGHT_MULTIPLIER = 3
+        DIFFICULTY_EASY = "easy"
+        DIFFICULTY_MEDIUM = "medium"
+        DIFFICULTY_HARD = "hard"
+
+        MAP_WIDTH_MULTIPLIER = 4
+        MAP_HEIGHT_MULTIPLIER = 4
         MIN_ROOM_SIZE = 4
         MAX_ROOM_SIZE = 10
         MIN_HALL_SIZE = 12
@@ -67,6 +74,7 @@ class ProjectSettings:
             os.path.dirname(__file__)), "music")
         DEFAULT_SOUND_VOLUME = 1.0
         DEFAULT_MUSIC_VOLUME = 1.0
+        DEFAULT_FRAME_LIMIT = "240"
 
         SETTINGS_PANEL_WIDTH = 800
         SETTINGS_PANEL_HEIGHT = 600

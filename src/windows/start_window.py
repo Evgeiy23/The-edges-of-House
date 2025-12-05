@@ -4,6 +4,7 @@ import os
 import json
 import pyglet
 from project import ProjectSettings
+from utils import get_config_path
 
 
 class StartWindow(arcade.View):
@@ -12,6 +13,8 @@ class StartWindow(arcade.View):
 
         self.screen_width = 0
         self.screen_height = 0
+        self.transition_alpha = 0
+        self.transitioning = False
 
         self.manager = arcade.gui.UIManager()
         self.manager.enable()
@@ -38,6 +41,10 @@ class StartWindow(arcade.View):
         self.display_modes = ["Полноэкранный",
                               "Полноэкранный в окне", "В окне"]
         self.current_mode_index = 0 if ProjectSettings.FULLSCREEN else 2
+        self.frame_limit_options = ProjectSettings.Game.FRAME_LIMIT_OPTIONS
+        self.frame_limit_index = self.frame_limit_options.index(
+            ProjectSettings.Game.DEFAULT_FRAME_LIMIT
+        ) if ProjectSettings.Game.DEFAULT_FRAME_LIMIT in ProjectSettings.Game.FRAME_LIMIT_OPTIONS else 0
 
         self.music_volume = 1.0
         self.sound_volume = 1.0
@@ -55,6 +62,8 @@ class StartWindow(arcade.View):
 
         self.background_list = arcade.SpriteList()
         self.background_sprite = None
+        self.button_fx = {}
+        self.start_button = None
 
         self.setup_ui()
         self.load_settings()
@@ -136,6 +145,7 @@ class StartWindow(arcade.View):
             height=settings.BUTTON_HEIGHT
         )
         start_button.on_click = self.on_start_click
+        self.start_button = start_button
         v_box.add(start_button)
 
         settings_button = arcade.gui.UIFlatButton(
@@ -173,7 +183,10 @@ class StartWindow(arcade.View):
         self.title_y = 0
 
     def on_start_click(self, event):
-        self.start_game = True
+        self.button_fx[self.start_button] = 0.2
+        self.transitioning = True
+        self.transition_alpha = 0
+        self.pause_main_music()
 
     def on_settings_click(self, event):
         self.show_settings = True
@@ -271,6 +284,22 @@ class StartWindow(arcade.View):
                     anchor_y="center",
                     bold=True
                 )
+                if button in self.button_fx:
+                    alpha = int(
+                        max(0, min(255, 255 * (self.button_fx[button] / 0.2))))
+                    left = button.rect.left
+                    right = button.rect.right
+                    bottom = button.rect.bottom
+                    top = button.rect.top
+                    arcade.draw_lrbt_rectangle_outline(
+                        left, right, bottom, top, (*arcade.color.WHITE[:3], alpha), border_width=3)
+
+        if self.transitioning:
+            alpha = int(self.transition_alpha)
+            left, right = 0, self.width
+            bottom, top = 0, self.height
+            arcade.draw_lrbt_rectangle_filled(
+                left, right, bottom, top, (0, 0, 0, alpha))
 
     def on_show_view(self):
         self.manager.enable()
@@ -360,6 +389,24 @@ class StartWindow(arcade.View):
         except Exception:
             pass
 
+        expired = []
+        for btn, t in self.button_fx.items():
+            t -= delta_time
+            if t <= 0:
+                expired.append(btn)
+            else:
+                self.button_fx[btn] = t
+        for btn in expired:
+            self.button_fx.pop(btn, None)
+
+        if self.transitioning:
+            self.transition_alpha = min(
+                255, self.transition_alpha + delta_time * 400)
+            if self.transition_alpha >= 255 and self.window:
+                from windows.game_start_dialog import GameStartDialog
+                dialog = GameStartDialog()
+                self.window.show_view(dialog)
+
     def settings_panel_dimensions(self):
         s = ProjectSettings.StartWindow
         spacing = s.BUTTON_SPACING
@@ -369,6 +416,7 @@ class StartWindow(arcade.View):
         slider_h = 24
         items_h = (
             label_h +
+            label_h + row_h +
             label_h + row_h +
             label_h + row_h +
 
@@ -424,6 +472,24 @@ class StartWindow(arcade.View):
         mode_row.add(mode_right)
         v_box.add(mode_row)
 
+        fps_title = arcade.gui.UILabel(
+            text="Ограничение FPS", text_color=arcade.color.WHITE)
+        v_box.add(fps_title)
+
+        fps_row = arcade.gui.UIBoxLayout(vertical=False, space_between=20)
+        fps_left = arcade.gui.UIFlatButton(
+            text="", width=60, height=s.BUTTON_HEIGHT)
+        fps_left.on_click = self.on_fps_left
+        fps_right = arcade.gui.UIFlatButton(
+            text="", width=60, height=s.BUTTON_HEIGHT)
+        fps_right.on_click = self.on_fps_right
+        self.fps_label = arcade.gui.UILabel(
+            text=self.fps_text(), text_color=arcade.color.LIGHT_GRAY)
+        fps_row.add(fps_left)
+        fps_row.add(self.fps_label)
+        fps_row.add(fps_right)
+        v_box.add(fps_row)
+
         music_title = arcade.gui.UILabel(
             text="Громкость музыки", text_color=arcade.color.WHITE)
         v_box.add(music_title)
@@ -442,6 +508,8 @@ class StartWindow(arcade.View):
             self.res_label.text = self.resolution_text()
         if self.mode_label:
             self.mode_label.text = self.mode_text()
+        if hasattr(self, "fps_label") and self.fps_label:
+            self.fps_label.text = self.fps_text()
 
         apply_button = arcade.gui.UIFlatButton(
             text="", width=s.BUTTON_WIDTH, height=s.BUTTON_HEIGHT)
@@ -454,9 +522,10 @@ class StartWindow(arcade.View):
         v_box.add(close_button)
 
         self.buttons = [apply_button, close_button,
-                        res_left, res_right, mode_left, mode_right]
+                        res_left, res_right, mode_left, mode_right,
+                        fps_left, fps_right]
         self.button_texts = ["Сохранить",
-                             s.SETTINGS_CLOSE_TEXT, "<", ">", "<", ">"]
+                             s.SETTINGS_CLOSE_TEXT, "<", ">", "<", ">", "<", ">"]
 
         anchor_layout = arcade.gui.UIAnchorLayout()
         anchor_layout.add(child=v_box, anchor_x="center_x",
@@ -496,11 +565,25 @@ class StartWindow(arcade.View):
         if self.res_label:
             self.res_label.text = self.resolution_text()
 
+    def on_fps_left(self, event):
+        self.frame_limit_index = (
+            self.frame_limit_index - 1) % len(self.frame_limit_options)
+        if hasattr(self, "fps_label") and self.fps_label:
+            self.fps_label.text = self.fps_text()
+
+    def on_fps_right(self, event):
+        self.frame_limit_index = (
+            self.frame_limit_index + 1) % len(self.frame_limit_options)
+        if hasattr(self, "fps_label") and self.fps_label:
+            self.fps_label.text = self.fps_text()
+
     def on_mode_left(self, event):
         self.current_mode_index = (
             self.current_mode_index - 1) % len(self.display_modes)
         if self.mode_label:
             self.mode_label.text = self.mode_text()
+        if hasattr(self, "fps_label") and self.fps_label:
+            self.fps_label.text = self.fps_text()
 
     def on_mode_right(self, event):
         self.current_mode_index = (
@@ -514,6 +597,12 @@ class StartWindow(arcade.View):
 
     def mode_text(self):
         return self.display_modes[self.current_mode_index]
+
+    def fps_text(self):
+        try:
+            return self.frame_limit_options[self.frame_limit_index]
+        except Exception:
+            return ProjectSettings.Game.DEFAULT_FRAME_LIMIT
 
     def apply_display_settings(self):
         if not self.window:
@@ -560,7 +649,7 @@ class StartWindow(arcade.View):
             return ProjectSettings.Settings.WINDOW_MODE_WINDOWED
 
     def load_settings(self):
-        config_file = "config.json"
+        config_file = get_config_path()
         if os.path.exists(config_file):
             try:
                 with open(config_file, 'r', encoding='utf-8') as f:
@@ -585,6 +674,10 @@ class StartWindow(arcade.View):
                     sound_vol = config.get('sound_volume', None)
                     if sound_vol is not None:
                         self.sound_volume = float(sound_vol)
+                    frame_limit = config.get('frame_limit')
+                    if frame_limit and frame_limit in ProjectSettings.Game.FRAME_LIMIT_OPTIONS:
+                        self.frame_limit_index = ProjectSettings.Game.FRAME_LIMIT_OPTIONS.index(
+                            frame_limit)
 
             except Exception as e:
                 print(f"Ошибка загрузки настроек: {e}")
@@ -594,10 +687,11 @@ class StartWindow(arcade.View):
             'resolution_index': self.current_resolution_index,
             'window_mode': self.get_window_mode_string(),
             'music_volume': self.music_volume,
-            'sound_volume': self.sound_volume
+            'sound_volume': self.sound_volume,
+            'frame_limit': self.frame_limit_options[self.frame_limit_index]
         }
         try:
-            with open("config.json", 'w', encoding='utf-8') as f:
+            with open(get_config_path(), 'w', encoding='utf-8') as f:
                 json.dump(config, f, indent=2, ensure_ascii=False)
         except Exception as e:
             print(f"Ошибка сохранения настроек: {e}")
