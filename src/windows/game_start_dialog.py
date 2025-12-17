@@ -282,9 +282,9 @@ class GameStartDialog(arcade.View):
             self.transition_alpha = min(
                 255, self.transition_alpha + delta_time * 400)
             if self.transition_alpha >= 255 and self.window:
-                from windows.game_window import GameWindow
-                game_view = GameWindow(
+                from windows.loading_view import LoadingView
+                loading_view = LoadingView(
                     difficulty=self.selected_difficulty,
                     load_save=self.load_save
                 )
-                self.window.show_view(game_view)
+                self.window.show_view(loading_view)

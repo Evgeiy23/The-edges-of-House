@@ -42,6 +42,10 @@ class ProjectSettings:
         FRAME_LIMIT_OPTIONS = ["unlimited", "240",
                                "165", "144", "120", "60", "vsync"]
         DEFAULT_FRAME_LIMIT = "240"
+        # Дополнительный коэффициент масштабирования карты
+        # (умножается на базовый размер карты, рассчитанный по разрешению)
+        # Масштаб карты: 1 — без дополнительного увеличения (минимум лагов)
+        MAP_SCALE = 1
 
         DIFFICULTY_EASY = "easy"
         DIFFICULTY_MEDIUM = "medium"
@@ -49,8 +53,12 @@ class ProjectSettings:
 
         MAP_WIDTH_MULTIPLIER = 4
         MAP_HEIGHT_MULTIPLIER = 4
+        MAP_GROWTH_PER_LEVEL = 1
+        MAX_MAP_MULTIPLIER = 12
         MIN_ROOM_SIZE = 4
         MAX_ROOM_SIZE = 10
+        CORRIDOR_WIDTH = 11
+        PASSAGE_THICKNESS = 3
         MIN_HALL_SIZE = 12
         MAX_HALL_SIZE = 20
         NUM_ROOMS = 40

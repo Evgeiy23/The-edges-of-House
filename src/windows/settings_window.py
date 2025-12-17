@@ -1,5 +1,6 @@
 import arcade
 import arcade.gui
+import arcade.camera as arcade_camera
 import os
 import json
 import pyglet
@@ -29,8 +30,14 @@ class SettingsView(arcade.View):
         self.music_volume = ProjectSettings.Settings.DEFAULT_MUSIC_VOLUME
         self.custom_sounds = []
 
+        # Фон
+        self.background_texture = None
+        self.background_list = arcade.SpriteList()
+        self.background_sprite = None
+
         self.setup_ui()
         self.load_settings()
+        self._ensure_background_sprite()
 
     def get_available_resolutions(self):
         try:
@@ -494,7 +501,7 @@ class SettingsView(arcade.View):
 
     def on_show_view(self):
         self.manager.enable()
-        arcade.set_background_color(arcade.color.DARK_GRAY)
+        arcade.set_background_color(ProjectSettings.BACKGROUND_COLOR)
         if self.window:
             if self.saved_window_width is None:
                 self.saved_window_width = self.window.width
@@ -507,13 +514,86 @@ class SettingsView(arcade.View):
                             self.saved_window_width, self.saved_window_height)
                     except:
                         pass
+            
+            self._ensure_background_sprite()
+            self.update_background_scale()
 
     def on_hide_view(self):
         self.manager.disable()
 
     def on_draw(self):
         self.clear()
+
+        # Сначала настраиваем viewport и матрицы проекции для правильных координат
+        try:
+            import pyglet
+            pyglet.gl.glViewport(0, 0, self.width, self.height)
+            pyglet.gl.glMatrixMode(pyglet.gl.GL_PROJECTION)
+            pyglet.gl.glLoadIdentity()
+            pyglet.gl.glOrtho(0, self.width, 0, self.height, -1, 1)
+            pyglet.gl.glMatrixMode(pyglet.gl.GL_MODELVIEW)
+            pyglet.gl.glLoadIdentity()
+        except Exception:
+            pass
+
+        # Рисуем фон напрямую через draw_texture_rectangle (центрированно)
+        self._ensure_background_sprite()
+        if self.background_texture:
+            try:
+                # Центр экрана
+                center_x = self.width / 2.0
+                center_y = self.height / 2.0
+                
+                # Масштабируем так, чтобы покрыть весь экран
+                texture_width = self.background_texture.width
+                texture_height = self.background_texture.height
+                
+                if texture_width > 0 and texture_height > 0:
+                    scale_x = self.width / texture_width
+                    scale_y = self.height / texture_height
+                    scale = max(scale_x, scale_y)
+                    
+                    scaled_width = texture_width * scale
+                    scaled_height = texture_height * scale
+                    
+                    # Рисуем текстуру в центре экрана
+                    arcade.draw_texture_rectangle(
+                        center_x, center_y,
+                        scaled_width, scaled_height,
+                        self.background_texture
+                    )
+            except Exception as e:
+                print(f"Ошибка отрисовки фона: {e}")
+
+        # Рисуем UI элементы
         self.manager.draw()
 
     def on_update(self, delta_time):
         pass
+
+    def _ensure_background_sprite(self):
+        """Ensure background texture is loaded."""
+        try:
+            bg_path = getattr(ProjectSettings.StartWindow, 'BACKGROUND_IMAGE', None)
+            if not bg_path:
+                return
+            
+            if self.background_texture is None:
+                try:
+                    self.background_texture = arcade.load_texture(bg_path)
+                except Exception:
+                    try:
+                        sprite = arcade.Sprite(bg_path)
+                        if sprite and sprite.texture:
+                            self.background_texture = sprite.texture
+                    except Exception:
+                        self.background_texture = None
+        except Exception:
+            self.background_texture = None
+
+    def update_background_scale(self):
+        # Теперь масштабирование делается в on_draw, этот метод оставлен для совместимости
+        pass
+
+    def on_resize(self, width, height):
+        self.update_background_scale()

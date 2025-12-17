@@ -1,5 +1,6 @@
 import arcade
 import arcade.gui
+import arcade.camera as arcade_camera
 import os
 import json
 import pyglet
@@ -62,11 +63,13 @@ class StartWindow(arcade.View):
 
         self.background_list = arcade.SpriteList()
         self.background_sprite = None
+        self.camera = None
         self.button_fx = {}
         self.start_button = None
 
         self.setup_ui()
         self.load_settings()
+        self._ensure_background_sprite()
         self.play_main_music()
 
     def get_available_resolutions(self):
@@ -140,7 +143,7 @@ class StartWindow(arcade.View):
         )
 
         start_button = arcade.gui.UIFlatButton(
-            text="",
+            text=settings.BUTTON_START_TEXT,
             width=settings.BUTTON_WIDTH,
             height=settings.BUTTON_HEIGHT
         )
@@ -149,7 +152,7 @@ class StartWindow(arcade.View):
         v_box.add(start_button)
 
         settings_button = arcade.gui.UIFlatButton(
-            text="",
+            text=settings.BUTTON_SETTINGS_TEXT,
             width=settings.BUTTON_WIDTH,
             height=settings.BUTTON_HEIGHT
         )
@@ -157,7 +160,7 @@ class StartWindow(arcade.View):
         v_box.add(settings_button)
 
         exit_button = arcade.gui.UIFlatButton(
-            text="",
+            text=settings.BUTTON_EXIT_TEXT,
             width=settings.BUTTON_WIDTH,
             height=settings.BUTTON_HEIGHT
         )
@@ -204,87 +207,121 @@ class StartWindow(arcade.View):
     def on_draw(self):
         self.clear()
 
-        self.background_list.draw()
+        try:
+            if self.camera is None:
+                self.camera = arcade_camera.Camera2D()
+            cam_x = self.width // 2
+            cam_y = self.height // 2
+            self.camera.position = (cam_x, cam_y)
+            self.camera.use()
+        except Exception:
+            pass
+
+        self.update_background_scale()
+        try:
+            self.background_list.draw()
+        except Exception:
+            self._ensure_background_sprite()
+
+        try:
+            import pyglet
+            pyglet.gl.glViewport(0, 0, self.width, self.height)
+            pyglet.gl.glMatrixMode(pyglet.gl.GL_PROJECTION)
+            pyglet.gl.glLoadIdentity()
+            pyglet.gl.glOrtho(0, self.width, 0, self.height, -1, 1)
+            pyglet.gl.glMatrixMode(pyglet.gl.GL_MODELVIEW)
+            pyglet.gl.glLoadIdentity()
+        except Exception:
+            pass
 
         settings = ProjectSettings.StartWindow
 
-        shadow_offset = 3
-        arcade.draw_text(
-            settings.TITLE_TEXT,
-            self.title_x + shadow_offset,
-            self.title_y - shadow_offset,
-            settings.TITLE_SHADOW_COLOR,
-            settings.TITLE_FONT_SIZE,
-            width=settings.TITLE_WIDTH,
-            align="center",
-            bold=settings.TITLE_BOLD,
-            anchor_x="center",
-            anchor_y="center"
-        )
-
-        arcade.draw_text(
-            settings.TITLE_TEXT,
-            self.title_x,
-            self.title_y,
-            settings.TITLE_COLOR,
-            settings.TITLE_FONT_SIZE,
-            width=settings.TITLE_WIDTH,
-            align="center",
-            bold=settings.TITLE_BOLD,
-            anchor_x="center",
-            anchor_y="center"
-        )
-
         if self.show_settings:
+            if self.window:
+                self.screen_width = self.window.width
+                self.screen_height = self.window.height
+
             panel_w, panel_h = self.settings_panel_dimensions()
-            center_x = self.width // 2
-            center_y = self.height // 2
+            cx = self.width // 2
+            cy = self.height // 2
+            left = cx - panel_w // 2
+            right = cx + panel_w // 2
+            bottom = cy - panel_h // 2
+            top = cy + panel_h // 2
 
-            left, right = 0, self.width
-            bottom, top = 0, self.height
-            arcade.draw_lrbt_rectangle_filled(
-                left, right, bottom, top, (0, 0, 0, 160))
-
-            left = center_x - panel_w // 2
-            right = center_x + panel_w // 2
-            bottom = center_y - panel_h // 2
-            top = center_y + panel_h // 2
-            arcade.draw_lrbt_rectangle_filled(
-                left, right, bottom, top, (30, 30, 30, 240))
-            arcade.draw_lrbt_rectangle_outline(
-                left, right, bottom, top, arcade.color.WHITE, border_width=2)
+            arcade.draw_lrbt_rectangle_filled(0, self.width, 0, self.height, (0, 0, 0, 180))
+            arcade.draw_lrbt_rectangle_filled(left, right, bottom, top, (30, 30, 30, 240))
+            arcade.draw_lrbt_rectangle_outline(left, right, bottom, top, arcade.color.WHITE, border_width=2)
 
             title = ProjectSettings.StartWindow.SETTINGS_TITLE_TEXT
-            arcade.draw_text(
-                title,
-                center_x,
-                center_y + panel_h // 2 - 50,
-                arcade.color.WHITE,
-                ProjectSettings.StartWindow.TITLE_FONT_SIZE // 2,
-                anchor_x="center",
-                anchor_y="center",
-                bold=True
-            )
+            arcade.draw_text(title, cx, top - 48,
+                             arcade.color.WHITE, ProjectSettings.StartWindow.TITLE_FONT_SIZE // 2,
+                             anchor_x="center", anchor_y="center", bold=True)
 
+            try:
+                self.manager.draw()
+            except Exception:
+                pass
+
+        # Draw UI (buttons, labels)
+        try:
+            self.manager.draw()
+        except Exception:
             pass
 
-        self.manager.draw()
+        if not self.show_settings:
+            try:
+                if self.buttons and hasattr(self.buttons[0], 'rect'):
+                    bx = self.buttons[0].rect.center_x
+                    by_top = self.buttons[0].rect.top
+                    self.title_x = bx
+                    self.title_y = by_top + settings.TITLE_BOTTOM_SPACING + settings.TITLE_FONT_SIZE
+            except Exception:
+                pass
+
+            shadow_offset = 3
+            arcade.draw_text(
+                settings.TITLE_TEXT,
+                self.title_x + shadow_offset,
+                self.title_y - shadow_offset,
+                settings.TITLE_SHADOW_COLOR,
+                settings.TITLE_FONT_SIZE,
+                width=settings.TITLE_WIDTH,
+                align="center",
+                bold=settings.TITLE_BOLD,
+                anchor_x="center",
+                anchor_y="center"
+            )
+
+            arcade.draw_text(
+                settings.TITLE_TEXT,
+                self.title_x,
+                self.title_y,
+                settings.TITLE_COLOR,
+                settings.TITLE_FONT_SIZE,
+                width=settings.TITLE_WIDTH,
+                align="center",
+                bold=settings.TITLE_BOLD,
+                anchor_x="center",
+                anchor_y="center"
+            )
 
         for button, text in zip(self.buttons, self.button_texts):
             if hasattr(button, 'rect'):
-                button_x = button.rect.center_x
-                button_y = button.rect.center_y
-                arcade.draw_text(
-                    text,
-                    button_x,
-                    button_y,
-                    arcade.color.WHITE,
-                    settings.BUTTON_FONT_SIZE,
-                    anchor_x="center",
-                    anchor_y="center",
-                    bold=True
-                )
-                if button in self.button_fx:
+                if getattr(button, 'text', '') == '':
+                    button_x = button.rect.center_x
+                    button_y = button.rect.center_y
+                    arcade.draw_text(
+                        text,
+                        button_x,
+                        button_y,
+                        arcade.color.WHITE,
+                        settings.BUTTON_FONT_SIZE,
+                        anchor_x="center",
+                        anchor_y="center",
+                        bold=True
+                    )
+                if not self.show_settings and button in self.button_fx:
                     alpha = int(
                         max(0, min(255, 255 * (self.button_fx[button] / 0.2))))
                     left = button.rect.left
@@ -302,13 +339,18 @@ class StartWindow(arcade.View):
                 left, right, bottom, top, (0, 0, 0, alpha))
 
     def on_show_view(self):
-        self.manager.enable()
+        # Called when this view becomes active
+        try:
+            self.manager.enable()
+        except Exception:
+            pass
+
         arcade.set_background_color(ProjectSettings.BACKGROUND_COLOR)
         if self.window:
             if not self.window.fullscreen:
                 try:
                     self.window.set_size(self.window.width, self.window.height)
-                except:
+                except Exception:
                     pass
 
             self.screen_width = self.window.width
@@ -318,35 +360,99 @@ class StartWindow(arcade.View):
             self.title_x = self.screen_width // 2
             self.title_y = self.screen_height // 2 + settings.TITLE_TOP_OFFSET + 150
 
-            if self.background_sprite is None:
-                try:
-                    self.background_sprite = arcade.Sprite(
-                        ProjectSettings.StartWindow.BACKGROUND_IMAGE)
-                    self.background_list.append(self.background_sprite)
-                except:
-                    pass
+            self._ensure_background_sprite()
 
             self.update_background_scale()
 
+            try:
+                if self.camera is None:
+                    self.camera = arcade_camera.Camera2D()
+                self.camera.position = (self.screen_width // 2, self.screen_height // 2)
+            except Exception:
+                pass
+
             if hasattr(self, 'main_music_player') and self.main_music_player:
                 try:
-                    self.main_music_player.volume = self.music_volume
-                except:
+                    if hasattr(self.main_music_player, "volume"):
+                        self.main_music_player.volume = self.music_volume
+                except Exception:
                     pass
 
+        # Ensure main menu music is playing when view is shown
+        try:
+            if not self.main_music_player:
+                self.play_main_music()
+            else:
+                self.resume_main_music()
+        except Exception:
+            pass
+
+    def _ensure_background_sprite(self):
+        """Ensure background_sprite is loaded and present in background_list."""
+        try:
+            bg_path = getattr(ProjectSettings.StartWindow, 'BACKGROUND_IMAGE', None)
+            if not bg_path:
+                return
+            if self.background_sprite:
+                try:
+                    if getattr(self.background_sprite, 'texture', None):
+                        if self.background_sprite not in self.background_list:
+                            self.background_list.append(self.background_sprite)
+                        return
+                except Exception:
+                    pass
+
+            try:
+                sprite = arcade.Sprite(bg_path)
+                if getattr(sprite, 'texture', None):
+                    self.background_sprite = sprite
+                    if self.background_sprite not in self.background_list:
+                        self.background_list.append(self.background_sprite)
+                    return
+                else:
+                    try:
+                        del sprite
+                    except Exception:
+                        pass
+            except Exception:
+                try:
+                    texture = arcade.load_texture(bg_path)
+                    if texture:
+                        sprite = arcade.Sprite()
+                        sprite.texture = texture
+                        self.background_sprite = sprite
+                        if self.background_sprite not in self.background_list:
+                            self.background_list.append(self.background_sprite)
+                except Exception:
+                    self.background_sprite = None
+        except Exception:
+            self.background_sprite = None
+
     def update_background_scale(self):
-        if self.background_sprite and self.window and self.background_sprite.texture:
-            self.screen_width = self.window.width
-            self.screen_height = self.window.height
-            self.background_sprite.center_x = self.screen_width // 2
-            self.background_sprite.center_y = self.screen_height // 2
+        if not self.window:
+            return
+        self.screen_width = self.window.width
+        self.screen_height = self.window.height
 
-            original_width = self.background_sprite.texture.width
-            original_height = self.background_sprite.texture.height
+        if self.background_sprite is None:
+            self._ensure_background_sprite()
 
-            scale_x = self.screen_width / original_width
-            scale_y = self.screen_height / original_height
-            self.background_sprite.scale = max(scale_x, scale_y)
+        if self.background_sprite and getattr(self.background_sprite, 'texture', None):
+            try:
+                self.background_sprite.center_x = self.screen_width // 2
+                self.background_sprite.center_y = self.screen_height // 2
+
+                original_width = self.background_sprite.texture.width
+                original_height = self.background_sprite.texture.height
+
+                if original_width <= 0 or original_height <= 0:
+                    return
+
+                scale_x = self.screen_width / original_width
+                scale_y = self.screen_height / original_height
+                self.background_sprite.scale = max(scale_x, scale_y)
+            except Exception:
+                self._ensure_background_sprite()
 
     def on_resize(self, width, height):
         self.screen_width = width
@@ -355,9 +461,17 @@ class StartWindow(arcade.View):
         settings = ProjectSettings.StartWindow
         self.title_x = self.screen_width // 2
         self.title_y = self.screen_height // 2 + settings.TITLE_TOP_OFFSET + 150
+        try:
+            if self.camera:
+                self.camera.position = (self.screen_width // 2, self.screen_height // 2)
+        except Exception:
+            pass
 
     def on_hide_view(self):
-        self.manager.disable()
+        try:
+            self.manager.disable()
+        except Exception:
+            pass
 
     def on_update(self, delta_time):
         if self.window:
@@ -390,7 +504,7 @@ class StartWindow(arcade.View):
             pass
 
         expired = []
-        for btn, t in self.button_fx.items():
+        for btn, t in list(self.button_fx.items()):
             t -= delta_time
             if t <= 0:
                 expired.append(btn)
@@ -426,8 +540,10 @@ class StartWindow(arcade.View):
         )
         total_spacers = 10
         total_h = items_h + spacing * total_spacers + 40
-        panel_h = min(total_h, self.screen_height - 120)
-        panel_w = min(560, self.screen_width - 120)
+        min_h = max(int(self.screen_height * 0.6), total_h)
+        panel_h = min(min_h, self.screen_height - 120)
+        base_w = max(1000, int(self.screen_width * 0.7))
+        panel_w = min(base_w, self.screen_width - 120)
         return panel_w, panel_h
 
     def setup_settings_ui(self):
@@ -742,7 +858,10 @@ class StartWindow(arcade.View):
             self.settings_player = None
 
     def play_main_music(self):
+        # Prefer specific track, fallback to any available in folder
         path = self.find_music_file("scary-horror-music-437662.mp3")
+        if not path:
+            path = self.find_music_file()
         if not path:
             return
         ext = os.path.splitext(path)[1].lower()
