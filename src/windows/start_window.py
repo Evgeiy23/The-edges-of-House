@@ -6,6 +6,7 @@ import json
 import pyglet
 from project import ProjectSettings
 from utils import get_config_path
+from game.logic.music import find_music_file as shared_find_music
 
 
 class StartWindow(arcade.View):
@@ -61,7 +62,7 @@ class StartWindow(arcade.View):
         self.title_x = 0
         self.title_y = 0
 
-        self.background_list = arcade.SpriteList()
+        self.background_list = None
         self.background_sprite = None
         self.camera = None
         self.button_fx = {}
@@ -71,6 +72,11 @@ class StartWindow(arcade.View):
         self.load_settings()
         self._ensure_background_sprite()
         self.play_main_music()
+
+    def _initialize_background_list(self):
+        """Initialize background sprite list safely with proper OpenGL context"""
+        if self.background_list is None:
+            self.background_list = arcade.SpriteList()
 
     def get_available_resolutions(self):
         try:
@@ -106,33 +112,7 @@ class StartWindow(arcade.View):
             return 1920, 1080
 
     def find_music_file(self, preferred_filename=None, folder_path=None):
-        if folder_path is None:
-            folder_path = ProjectSettings.Settings.DEFAULT_SOUNDS_FOLDER
-
-        if not os.path.exists(folder_path):
-            return None
-
-        valid_extensions = ['.mp3', '.wav', '.ogg', '.flac', '.m4a']
-
-        if preferred_filename:
-            preferred_path = os.path.join(folder_path, preferred_filename)
-            if os.path.isfile(preferred_path):
-                return preferred_path
-
-        music_files = []
-        try:
-            for file in os.listdir(folder_path):
-                file_path = os.path.join(folder_path, file)
-                if os.path.isfile(file_path):
-                    ext = os.path.splitext(file)[1].lower()
-                    if ext in valid_extensions:
-                        music_files.append(file_path)
-        except Exception:
-            return None
-
-        if music_files:
-            return music_files[0]
-        return None
+        return shared_find_music(preferred_filename, folder_path)
 
     def setup_ui(self):
         settings = ProjectSettings.StartWindow
@@ -151,6 +131,14 @@ class StartWindow(arcade.View):
         self.start_button = start_button
         v_box.add(start_button)
 
+        network_button = arcade.gui.UIFlatButton(
+            text="Играть по сети",
+            width=settings.BUTTON_WIDTH,
+            height=settings.BUTTON_HEIGHT
+        )
+        network_button.on_click = self.on_network_click
+        v_box.add(network_button)
+
         settings_button = arcade.gui.UIFlatButton(
             text=settings.BUTTON_SETTINGS_TEXT,
             width=settings.BUTTON_WIDTH,
@@ -167,9 +155,11 @@ class StartWindow(arcade.View):
         exit_button.on_click = self.on_exit_click
         v_box.add(exit_button)
 
-        self.buttons = [start_button, settings_button, exit_button]
+        self.buttons = [start_button, network_button,
+                        settings_button, exit_button]
         self.button_texts = [
             settings.BUTTON_START_TEXT,
+            "Играть по сети",
             settings.BUTTON_SETTINGS_TEXT,
             settings.BUTTON_EXIT_TEXT
         ]
@@ -190,6 +180,18 @@ class StartWindow(arcade.View):
         self.transitioning = True
         self.transition_alpha = 0
         self.pause_main_music()
+
+    def on_network_click(self, event):
+        if self.window:
+            import arcade
+            arcade.schedule(lambda dt: self._switch_to_network_window(), 0)
+
+    def _switch_to_network_window(self):
+        """Switch to network window on the main thread to avoid OpenGL context issues"""
+        if self.window:
+            from windows.network_window import NetworkWindow
+            network_window = NetworkWindow()
+            self.window.show_view(network_window)
 
     def on_settings_click(self, event):
         self.show_settings = True
@@ -219,6 +221,8 @@ class StartWindow(arcade.View):
 
         self.update_background_scale()
         try:
+            # Initialize background list if needed
+            self._initialize_background_list()
             self.background_list.draw()
         except Exception:
             self._ensure_background_sprite()
@@ -249,9 +253,12 @@ class StartWindow(arcade.View):
             bottom = cy - panel_h // 2
             top = cy + panel_h // 2
 
-            arcade.draw_lrbt_rectangle_filled(0, self.width, 0, self.height, (0, 0, 0, 180))
-            arcade.draw_lrbt_rectangle_filled(left, right, bottom, top, (30, 30, 30, 240))
-            arcade.draw_lrbt_rectangle_outline(left, right, bottom, top, arcade.color.WHITE, border_width=2)
+            arcade.draw_lrbt_rectangle_filled(
+                0, self.width, 0, self.height, (0, 0, 0, 180))
+            arcade.draw_lrbt_rectangle_filled(
+                left, right, bottom, top, (30, 30, 30, 240))
+            arcade.draw_lrbt_rectangle_outline(
+                left, right, bottom, top, arcade.color.WHITE, border_width=2)
 
             title = ProjectSettings.StartWindow.SETTINGS_TITLE_TEXT
             arcade.draw_text(title, cx, top - 48,
@@ -367,7 +374,8 @@ class StartWindow(arcade.View):
             try:
                 if self.camera is None:
                     self.camera = arcade_camera.Camera2D()
-                self.camera.position = (self.screen_width // 2, self.screen_height // 2)
+                self.camera.position = (
+                    self.screen_width // 2, self.screen_height // 2)
             except Exception:
                 pass
 
@@ -387,12 +395,23 @@ class StartWindow(arcade.View):
         except Exception:
             pass
 
+        # Ensure volume is properly applied after view is shown
+        if self.main_music_player and hasattr(self.main_music_player, "volume"):
+            try:
+                self.main_music_player.volume = self.music_volume
+            except Exception:
+                pass
+
     def _ensure_background_sprite(self):
         """Ensure background_sprite is loaded and present in background_list."""
         try:
-            bg_path = getattr(ProjectSettings.StartWindow, 'BACKGROUND_IMAGE', None)
+            bg_path = getattr(ProjectSettings.StartWindow,
+                              'BACKGROUND_IMAGE', None)
             if not bg_path:
                 return
+            # Initialize background list if needed
+            self._initialize_background_list()
+
             if self.background_sprite:
                 try:
                     if getattr(self.background_sprite, 'texture', None):
@@ -434,6 +453,9 @@ class StartWindow(arcade.View):
         self.screen_width = self.window.width
         self.screen_height = self.window.height
 
+        # Initialize background list if needed
+        self._initialize_background_list()
+
         if self.background_sprite is None:
             self._ensure_background_sprite()
 
@@ -463,7 +485,8 @@ class StartWindow(arcade.View):
         self.title_y = self.screen_height // 2 + settings.TITLE_TOP_OFFSET + 150
         try:
             if self.camera:
-                self.camera.position = (self.screen_width // 2, self.screen_height // 2)
+                self.camera.position = (
+                    self.screen_width // 2, self.screen_height // 2)
         except Exception:
             pass
 
@@ -499,6 +522,14 @@ class StartWindow(arcade.View):
                 pass
         try:
             if self.main_music_player and hasattr(self.main_music_player, "volume") and not self.show_settings:
+                self.main_music_player.volume = self.music_volume
+        except Exception:
+            pass
+
+        # Always ensure the volume is applied regardless of settings state
+        # This handles the case where volume is 0
+        try:
+            if self.main_music_player and hasattr(self.main_music_player, "volume"):
                 self.main_music_player.volume = self.music_volume
         except Exception:
             pass
@@ -657,6 +688,12 @@ class StartWindow(arcade.View):
             self.resume_main_music()
         except Exception:
             pass
+        # Ensure the main music volume is applied after closing settings
+        if self.main_music_player and hasattr(self.main_music_player, "volume"):
+            try:
+                self.main_music_player.volume = self.music_volume
+            except Exception:
+                pass
 
     def on_apply_settings_click(self, event):
         self.music_volume = (self.music_volume_slider.value or 0) / 100.0
@@ -823,17 +860,34 @@ class StartWindow(arcade.View):
                 media = pyglet.media.load(path, streaming=False)
                 self.settings_player = media.play()
                 self.settings_player.loop = True
+                # Apply volume to settings music player
+                if hasattr(self.settings_player, "volume"):
+                    if self.music_volume <= 0:
+                        self.settings_player.volume = 0
+                    else:
+                        self.settings_player.volume = self.music_volume
                 return
         except Exception:
             pass
 
         try:
             self.settings_sound = arcade.Sound(path)
-            self.settings_player = self.settings_sound.play(loop=True)
+            # Explicitly handle volume = 0 case for settings music
+            if self.music_volume <= 0:
+                self.settings_player = self.settings_sound.play(
+                    loop=True, volume=0)
+            else:
+                self.settings_player = self.settings_sound.play(
+                    loop=True, volume=self.music_volume)
         except Exception:
             try:
                 sound = arcade.load_sound(path)
-                self.settings_player = arcade.play_sound(sound)
+                # Apply volume when playing sound
+                if self.music_volume <= 0:
+                    self.settings_player = arcade.play_sound(sound, volume=0)
+                else:
+                    self.settings_player = arcade.play_sound(
+                        sound, volume=self.music_volume)
             except Exception:
                 self.settings_sound = None
                 self.settings_player = None
@@ -859,7 +913,7 @@ class StartWindow(arcade.View):
 
     def play_main_music(self):
         # Prefer specific track, fallback to any available in folder
-        path = self.find_music_file("scary-horror-music-437662.mp3")
+        path = self.find_music_file("scary_horror_theme.mp3")
         if not path:
             path = self.find_music_file()
         if not path:
@@ -879,12 +933,23 @@ class StartWindow(arcade.View):
             pass
         try:
             self.main_music_sound = arcade.Sound(path)
-            self.main_music_player = self.main_music_sound.play(
-                loop=True, volume=self.music_volume)
+            # Explicitly handle volume = 0 case
+            if self.music_volume <= 0:
+                self.main_music_player = self.main_music_sound.play(
+                    loop=True, volume=0)
+            else:
+                self.main_music_player = self.main_music_sound.play(
+                    loop=True, volume=self.music_volume)
         except Exception:
             try:
                 self.main_music_sound = arcade.Sound(path)
-                self.main_music_player = self.main_music_sound.play(loop=True)
+                # Explicitly handle volume = 0 case
+                if self.music_volume <= 0:
+                    self.main_music_player = self.main_music_sound.play(
+                        volume=0)
+                else:
+                    self.main_music_player = self.main_music_sound.play(
+                        volume=self.music_volume)
                 if hasattr(self.main_music_player, 'volume'):
                     self.main_music_player.volume = self.music_volume
             except Exception:

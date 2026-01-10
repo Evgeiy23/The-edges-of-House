@@ -1,3 +1,4 @@
 from .player import Player
+from .boss import Boss
 
-__all__ = ['Player']
+__all__ = ['Player', 'Boss']

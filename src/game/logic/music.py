@@ -13,24 +13,28 @@ def find_music_file(preferred_filename=None, folder_path=None):
 
     valid_extensions = ['.mp3', '.wav', '.ogg', '.flac', '.m4a']
 
+    # Если задано имя, ищем его по всем подпапкам
     if preferred_filename:
-        preferred_path = os.path.join(folder_path, preferred_filename)
-        if os.path.isfile(preferred_path):
-            return preferred_path
+        try:
+            for root, _, files in os.walk(folder_path):
+                for name in files:
+                    if name == preferred_filename:
+                        candidate = os.path.join(root, name)
+                        if os.path.isfile(candidate):
+                            return candidate
+        except Exception:
+            pass
 
-    music_files = []
+    # Иначе собираем первый подходящий файл из всех подпапок
     try:
-        for file in os.listdir(folder_path):
-            file_path = os.path.join(folder_path, file)
-            if os.path.isfile(file_path):
-                ext = os.path.splitext(file)[1].lower()
+        for root, _, files in os.walk(folder_path):
+            for name in files:
+                ext = os.path.splitext(name)[1].lower()
                 if ext in valid_extensions:
-                    music_files.append(file_path)
+                    return os.path.join(root, name)
     except Exception:
-        return None
+        pass
 
-    if music_files:
-        return music_files[0]
     return None
 
 
@@ -84,3 +88,33 @@ def stop_player(player):
             player.stop()
     except Exception:
         pass
+
+
+def play_once(path, volume=1.0):
+    if not path:
+        return None, None
+    ext = os.path.splitext(path)[1].lower()
+    try:
+        if ext == ".mp3":
+            media = pyglet.media.load(path, streaming=False)
+            player = media.play()
+            try:
+                player.volume = volume
+            except Exception:
+                pass
+            return player, None
+    except Exception:
+        pass
+    try:
+        sound = arcade.Sound(path)
+        player = sound.play(volume=volume)
+        return player, sound
+    except Exception:
+        try:
+            sound = arcade.Sound(path)
+            player = sound.play()
+            if hasattr(player, 'volume'):
+                player.volume = volume
+            return player, sound
+        except Exception:
+            return None, None

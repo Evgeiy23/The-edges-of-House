@@ -17,10 +17,12 @@ class DungeonMap:
         self.corridor_tiles = set()
         self.exit_pos = None
         self.exit_room_idx = None
-        self.collision_groups = {}  # Dictionary to store collision groups
+        self.exit_door_positions = []  # Позиции прохода в комнату с выходом для закрытия
+        self.exit_door_closed = False  # Флаг закрытия прохода
+        self.collision_groups = {}
 
-        self.floor_texture = None
-        self._load_floor_texture()
+        self.textures = {}
+        self._load_textures()
 
         if map_payload:
             self._apply_payload(map_payload)
@@ -28,15 +30,12 @@ class DungeonMap:
             self.generate(game_cfg, spawn_corner)
 
     def create_collision_groups(self):
-        """Create collision groups for optimization"""
-        # Group adjacent non-walkable tiles together for collision optimization
         visited = set()
         group_id = 0
 
         for y in range(self.map_height):
             for x in range(self.map_width):
                 if (x, y) not in visited and not self.is_walkable(x, y):
-                    # Start a new group using iterative flood fill
                     group = []
                     stack = [(x, y)]
 
@@ -55,7 +54,6 @@ class DungeonMap:
                         visited.add((curr_x, curr_y))
                         group.append((curr_x, curr_y))
 
-                        # Check adjacent tiles
                         for dx, dy in [(0, 1), (0, -1), (1, 0), (-1, 0)]:
                             next_x, next_y = curr_x + dx, curr_y + dy
                             if ((next_x, next_y) not in visited and
@@ -69,24 +67,48 @@ class DungeonMap:
                         group_id += 1
 
     def get_collision_groups(self):
-        """Return collision groups for optimization"""
         if not self.collision_groups:
             self.create_collision_groups()
         return self.collision_groups
 
-    def _load_floor_texture(self):
-        floor_texture_path = os.path.join("resources", "map", "tile_0014.png")
-        if os.path.exists(floor_texture_path):
-            self.floor_texture = arcade.load_texture(floor_texture_path)
-        else:
-            self.floor_texture = None
+    def _load_textures(self):
+        # Default floor
+        self.textures[0] = self._load_tex("tile_0000.png")  # Corridor
+        self.textures[2] = self._load_tex("tile_0000.png")  # Room Floor
+        
+        # Walls
+        self.textures[1] = self._load_tex("tile_0040.png")
+        
+        # Floor variants (Walkable)
+        self.textures[10] = self._load_tex("tile_0024.png")
+        self.textures[11] = self._load_tex("tile_0094.png")
+        
+        # Decorations (Unwalkable)
+        self.textures[20] = self._load_tex("tile_0082.png")
+        self.textures[21] = self._load_tex("tile_0065.png")
+        self.textures[22] = self._load_tex("tile_0063.png")
+
+        # Exit
+        # Keep default exit color or load texture if needed. 
+        # For now we rely on draw_map colors for exit (3), but we can add texture if available.
+    
+    def _load_tex(self, name):
+        path = os.path.join("resources", "map", name)
+        if os.path.exists(path):
+            return arcade.load_texture(path)
+        return None
 
     def generate(self, game_cfg, spawn_corner=None):
-        (self.map_data, self.rooms, self.room_tile_map,
-         self.corridor_tiles, self.exit_pos, self.exit_room_idx) = generate_dungeon(
+        result = generate_dungeon(
             self.map_width, self.map_height, game_cfg, spawn_corner)
+        if len(result) == 7:  # Current function returns 7 values
+            (self.map_data, self.rooms, self.room_tile_map,
+             self.corridor_tiles, self.exit_pos, self.exit_room_idx,
+             exit_door_positions) = result
+        else:  # Fallback for different return values
+            (self.map_data, self.rooms, self.room_tile_map,
+             self.corridor_tiles, self.exit_pos, self.exit_room_idx) = result
 
-        # Отложим создание групп коллизий до момента, когда они понадобятся
         # self.create_collision_groups()
 
     def _apply_payload(self, payload):
@@ -114,8 +136,15 @@ class DungeonMap:
         exit_pos = payload.get("exit_pos")
         self.exit_pos = tuple(exit_pos) if exit_pos else None
         self.exit_room_idx = payload.get("exit_room_idx")
+        # Загружаем позиции прохода в комнату с выходом
+        exit_door_raw = payload.get("exit_door_positions", [])
+        if exit_door_raw:
+            self.exit_door_positions = [tuple(p) if isinstance(
+                p, (list, tuple)) else p for p in exit_door_raw]
+        else:
+            self.exit_door_positions = []
+        self.exit_door_closed = payload.get("exit_door_closed", False)
 
-        # If some metadata is missing, rebuild it from the tile grid
         if not self.rooms or not self.room_tile_map or not self.corridor_tiles:
             rebuilt = rebuild_metadata(
                 self.map_data, self.exit_pos, payload.get("spawn_corner"))
@@ -132,7 +161,10 @@ class DungeonMap:
 
     def is_walkable(self, x, y):
         tile_value = self.get_tile_value(x, y)
-        return tile_value in (0, 2, 3)
+        # 0, 2: Standard floors
+        # 3: Exit
+        # 10, 11: Floor variants
+        return tile_value in (0, 2, 3, 10, 11)
 
     def get_room_id(self, x, y):
         return self.room_tile_map.get((x, y))

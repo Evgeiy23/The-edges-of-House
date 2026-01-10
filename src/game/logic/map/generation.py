@@ -4,8 +4,11 @@ import math
 
 def generate_dungeon(map_width, map_height, cfg, spawn_corner=None):
     room_size = max(6, random.randint(cfg.MIN_ROOM_SIZE, cfg.MAX_ROOM_SIZE))
-    corridor_width = max(3, getattr(cfg, 'CORRIDOR_WIDTH', 5))
-    passage_thickness = max(2, getattr(cfg, 'PASSAGE_THICKNESS', 2))
+    # Увеличиваем ширину коридоров для комфортного прохода
+    corridor_width = max(8, getattr(cfg, 'CORRIDOR_WIDTH', 14))
+    # Увеличиваем толщину проходов
+    passage_thickness = max(3, getattr(cfg, 'PASSAGE_THICKNESS', 3))
+    exit_room_multiplier = getattr(cfg, 'EXIT_ROOM_SIZE_MULTIPLIER', 1.5)
     spacing_y = room_size + corridor_width + random.randint(2, 5)
     center_x = map_width // 2
 
@@ -30,7 +33,7 @@ def generate_dungeon(map_width, map_height, cfg, spawn_corner=None):
 
     for cx in corridor_positions:
         for y in range(1, map_height - 1):
-            local_w = max(3, corridor_width)
+            local_w = max(2, corridor_width)  # Ширина коридора 2 тайла
             for w in range(-(local_w // 2), local_w // 2 + 1):
                 x = cx + w
                 if 0 <= x < map_width:
@@ -38,7 +41,7 @@ def generate_dungeon(map_width, map_height, cfg, spawn_corner=None):
                     corridor_tiles.add((x, y))
 
     mid_y = map_height // 2
-    local_w = max(3, corridor_width)
+    local_w = max(2, corridor_width)  # Ширина коридора 2 тайла
     for x in range(1, map_width - 1):
         for w in range(-(local_w // 2), local_w // 2 + 1):
             y = mid_y + w
@@ -70,14 +73,27 @@ def generate_dungeon(map_width, map_height, cfg, spawn_corner=None):
             door_x = corridor_x
             door_y = room["y1"] if dir_y < 0 else room["y2"] - 1
 
-        door_thickness = max(2, passage_thickness)
-        for dy in range(-(door_thickness // 2), door_thickness // 2 + 1):
-            for dx in range(-(passage_thickness // 2), passage_thickness // 2 + 1):
-                px = door_x + dx
-                py = door_y + dy
-                if 0 <= px < map_width and 0 <= py < map_height:
-                    map_data[py][px] = 0
-                    corridor_tiles.add((px, py))
+        # Создаем проход 2x2 тайла
+        passage_size = 2  # 2 блока
+        if dir_x != 0:
+            # Горизонтальный проход (комната слева/справа) - 2 тайла по вертикали и 2 по горизонтали
+            for dy in range(passage_size):  # 2 тайла по вертикали
+                # 2 тайла по горизонтали (в сторону комнаты)
+                for dx in range(passage_size):
+                    px = door_x + (dx if dir_x > 0 else -dx)
+                    py = door_y + dy
+                    if 0 <= px < map_width and 0 <= py < map_height:
+                        map_data[py][px] = 0
+                        corridor_tiles.add((px, py))
+        else:
+            # Вертикальный проход (комната сверху/снизу) - 2 тайла по горизонтали и 2 по вертикали
+            for dx in range(passage_size):  # 2 тайла по горизонтали
+                for dy in range(passage_size):  # 2 тайла по вертикали (в сторону комнаты)
+                    px = door_x + dx
+                    py = door_y + (dy if dir_y > 0 else -dy)
+                    if 0 <= px < map_width and 0 <= py < map_height:
+                        map_data[py][px] = 0
+                        corridor_tiles.add((px, py))
         interior_x1 = room["x1"] + 1
         interior_x2 = room["x2"] - 1
         interior_y1 = room["y1"] + 1
@@ -122,9 +138,17 @@ def generate_dungeon(map_width, map_height, cfg, spawn_corner=None):
         door_y = min(max(room_y1 + outer_h // 2, 1), map_height - 2)
         door_x = cx
         target_x = room["x1"] if dir_side > 0 else room["x2"] - 1
-        door_thickness = max(2, passage_thickness)
-        for dy in range(-(door_thickness // 2), door_thickness // 2 + 1):
+        # Создаем проход 2x2 тайла
+        passage_size = 2  # 2 блока
+        for dy in range(passage_size):  # 2 тайла по вертикали
             y = door_y + dy
+            # Создаем проход между коридором и комнатой - 2 тайла по горизонтали
+            for dx in range(passage_size):
+                x = target_x + (dx if dir_side > 0 else -dx)
+                if 0 <= x < map_width and 0 <= y < map_height:
+                    map_data[y][x] = 0
+                    corridor_tiles.add((x, y))
+            # Также проход в коридоре
             for x in range(min(door_x, target_x), max(door_x, target_x) + 1):
                 if 0 <= x < map_width and 0 <= y < map_height:
                     map_data[y][x] = 0
@@ -179,32 +203,171 @@ def generate_dungeon(map_width, map_height, cfg, spawn_corner=None):
 
         corner_distances.sort(key=lambda t: t[0])
         exit_room_idx = corner_distances[0][1]
-        room = rooms[exit_room_idx]
+        original_room = rooms[exit_room_idx]
+
+        # Увеличиваем комнату с выходом
+        exit_room_size = int(room_size * exit_room_multiplier)
+        exit_room_w = exit_room_size + 2
+        exit_room_h = exit_room_size + 2
+
+        # Пересоздаем комнату с выходом большего размера
+        room_center_x = (original_room["x1"] + original_room["x2"]) // 2
+        room_center_y = (original_room["y1"] + original_room["y2"]) // 2
+
+        new_x1 = max(1, room_center_x - exit_room_w // 2)
+        new_y1 = max(1, room_center_y - exit_room_h // 2)
+        new_x1 = min(new_x1, map_width - exit_room_w - 1)
+        new_y1 = min(new_y1, map_height - exit_room_h - 1)
+
+        # Удаляем старую комнату
+        for y in range(original_room["y1"], original_room["y2"]):
+            for x in range(original_room["x1"], original_room["x2"]):
+                if 0 <= x < map_width and 0 <= y < map_height:
+                    if map_data[y][x] == 2:
+                        room_tile_map.pop((x, y), None)
+                    map_data[y][x] = 1
+
+        # Создаем новую большую комнату
+        room = {
+            "x1": new_x1,
+            "y1": new_y1,
+            "x2": new_x1 + exit_room_w,
+            "y2": new_y1 + exit_room_h
+        }
+        rooms[exit_room_idx] = room
+
+        # Заполняем новую комнату
+        interior_x1 = room["x1"] + 1
+        interior_x2 = room["x2"] - 1
+        interior_y1 = room["y1"] + 1
+        interior_y2 = room["y2"] - 1
+        for ry in range(interior_y1, interior_y2):
+            for rx in range(interior_x1, interior_x2):
+                map_data[ry][rx] = 2
+                room_tile_map[(rx, ry)] = exit_room_idx
+        # Стены комнаты
+        for xx in range(room["x1"], room["x2"]):
+            map_data[room["y1"]][xx] = 1
+            map_data[room["y2"] - 1][xx] = 1
+        for yy in range(room["y1"] + 1, room["y2"] - 1):
+            map_data[yy][room["x1"]] = 1
+            map_data[yy][room["x2"] - 1] = 1
 
         closest_corridor_x = min(corridor_positions, key=lambda x: abs(
-            x - (room["x1"] + room_size // 2)))
-        door_x = room["x1"] if (room["x1"] + room_size //
+            x - (room["x1"] + exit_room_size // 2)))
+        door_x = room["x1"] if (room["x1"] + exit_room_size //
                                 2) < closest_corridor_x else room["x2"] - 1
+
+        # Сохраняем позицию прохода для возможного закрытия
+        exit_door_positions = []
 
         if door_x == room["x1"]:
             back_wall_x = room["x2"] - 1
             opening_y = room["y1"] + (room["y2"] - room["y1"]) // 2
-            map_data[opening_y][back_wall_x] = 0
-            map_data[opening_y + 1][back_wall_x] = 0
-            corridor_tiles.add((back_wall_x, opening_y))
-            corridor_tiles.add((back_wall_x, opening_y + 1))
+            # Проход 2x2 тайла
+            passage_size = 2
+            for dy in range(passage_size):
+                for dx in range(passage_size):
+                    x = back_wall_x - dx
+                    y = opening_y + dy
+                    if 0 <= x < map_width and 0 <= y < map_height:
+                        map_data[y][x] = 0
+                        corridor_tiles.add((x, y))
+                        exit_door_positions.append((x, y))
             exit_pos = (back_wall_x, opening_y)
             ex, ey = exit_pos
             map_data[ey][ex] = 3
         else:
             back_wall_x = room["x1"]
             opening_y = room["y1"] + (room["y2"] - room["y1"]) // 2
-            map_data[opening_y][back_wall_x] = 0
-            map_data[opening_y + 1][back_wall_x] = 0
-            corridor_tiles.add((back_wall_x, opening_y))
-            corridor_tiles.add((back_wall_x, opening_y + 1))
+            # Проход 2x2 тайла
+            passage_size = 2
+            for dy in range(passage_size):
+                for dx in range(passage_size):
+                    x = back_wall_x + dx
+                    y = opening_y + dy
+                    if 0 <= x < map_width and 0 <= y < map_height:
+                        map_data[y][x] = 0
+                        corridor_tiles.add((x, y))
+                        exit_door_positions.append((x, y))
             exit_pos = (back_wall_x, opening_y)
             ex, ey = exit_pos
             map_data[ey][ex] = 3
 
-    return map_data, rooms, room_tile_map, corridor_tiles, exit_pos, exit_room_idx
+    # Ensure there's an exit at the end of the exit room - place exit on the far side of the room from the entrance
+    if rooms and exit_pos and exit_room_idx is not None:
+        # Find the exit room
+        exit_room = rooms[exit_room_idx]
+        if isinstance(exit_room, dict):
+            # Calculate the side of the room that's farthest from the corridor connection
+            x1, y1, x2, y2 = exit_room["x1"], exit_room["y1"], exit_room["x2"], exit_room["y2"]
+
+            # Determine which side of the room connects to the corridor
+            closest_corridor_x = min(corridor_positions, key=lambda x: abs(
+                x - ((x1 + x2) // 2)))
+
+            # Determine where the entrance is (left or right side of room)
+            # Based on the original logic, door_x is calculated as follows:
+            door_x = x1 if ((x1 + x2) // 2) < closest_corridor_x else x2 - 1
+
+            if abs(door_x - x1) < abs(door_x - x2):
+                # Entrance is on the left side (x1), so exit should be on the right side (x2)
+                exit_x = x2 - 1
+                exit_y = y1 + (y2 - y1) // 2
+            else:
+                # Entrance is on the right side (x2), so exit should be on the left side (x1)
+                exit_x = x1 + 1
+                exit_y = y1 + (y2 - y1) // 2
+
+            # Update the exit position to be at the far end of the room
+            # Only if it's different from the current exit position
+            if exit_pos != (exit_x, exit_y):
+                # Clear the old exit position
+                old_x, old_y = exit_pos
+                if 0 <= old_x < map_width and 0 <= old_y < map_height:
+                    # Restore the old exit position to a regular floor tile if it was an exit
+                    if map_data[old_y][old_x] == 3:
+                        map_data[old_y][old_x] = 2  # Floor tile
+
+                # Set the new exit position
+                if 0 <= exit_x < map_width and 0 <= exit_y < map_height:
+                    map_data[exit_y][exit_x] = 3  # Set as exit tile
+                    exit_pos = (exit_x, exit_y)
+
+    # Post-process map to add variety and decorations
+    for y in range(map_height):
+        for x in range(map_width):
+            if map_data[y][x] == 2:  # Room floor
+                # Randomly change some floor tiles to variants
+                r = random.random()
+                if r < 0.1:
+                    map_data[y][x] = 10  # Floor variant 1
+                elif r < 0.2:
+                    map_data[y][x] = 11  # Floor variant 2
+                
+                # Add decorations (non-walkable)
+                # Only place if not near a door or in a narrow path
+                # Ideally, check neighbors to ensure we don't block
+                # Simple heuristic: don't place if adjacent to a corridor (0) or door
+                # Also don't place if it would block the only path (hard to check cheaply)
+                # Let's place them sparsely
+                elif r > 0.95:
+                    # Check neighbors
+                    neighbors = [
+                        map_data[y-1][x] if y > 0 else 1,
+                        map_data[y+1][x] if y < map_height-1 else 1,
+                        map_data[y][x-1] if x > 0 else 1,
+                        map_data[y][x+1] if x < map_width-1 else 1
+                    ]
+                    # If any neighbor is a corridor (0) or door/exit (3), avoid
+                    if 0 not in neighbors and 3 not in neighbors:
+                         # Pick a decoration
+                         dec_r = random.random()
+                         if dec_r < 0.33:
+                             map_data[y][x] = 20
+                         elif dec_r < 0.66:
+                             map_data[y][x] = 21
+                         else:
+                             map_data[y][x] = 22
+
+    return map_data, rooms, room_tile_map, corridor_tiles, exit_pos, exit_room_idx, exit_door_positions

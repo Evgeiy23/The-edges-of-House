@@ -6,7 +6,6 @@ from typing import Dict, List, Optional, Set, Tuple
 from utils import get_app_data_dir
 
 try:
-    # generate_dungeon is only needed when creating a new map from scratch
     from game.logic.map.generation import generate_dungeon
 except Exception:
     generate_dungeon = None
@@ -16,7 +15,6 @@ MapPayload = Dict[str, object]
 
 
 def get_maps_dir() -> str:
-    """Return directory for generated map files in user data and ensure it exists."""
     base_dir = os.path.join(get_app_data_dir(), "maps")
     os.makedirs(base_dir, exist_ok=True)
     return base_dir
@@ -84,7 +82,6 @@ def _parse_corridor_tiles(raw) -> Set[Tuple[int, int]]:
 
 def rebuild_metadata(map_data: List[List[int]], exit_pos: Optional[Tuple[int, int]] = None,
                      spawn_corner: Optional[str] = None) -> MapPayload:
-    """Rebuild metadata (rooms, corridors, exit) from raw tile grid."""
     height = len(map_data)
     width = len(map_data[0]) if height > 0 else 0
 
@@ -200,7 +197,6 @@ def load_map_payload(map_name: str = "current") -> Optional[MapPayload]:
         payload["exit_room_idx"] = meta.get("exit_room_idx")
         payload["spawn_corner"] = meta.get("spawn_corner")
 
-    # If any critical metadata is missing, rebuild it to keep runtime logic working
     if not payload.get("rooms") or not payload.get("room_tile_map") or not payload.get("corridor_tiles"):
         rebuilt = rebuild_metadata(
             map_data, payload.get("exit_pos"), payload.get("spawn_corner"))
@@ -215,7 +211,7 @@ def generate_and_store_map(map_width: int, map_height: int, game_cfg,
     if generate_dungeon is None:
         raise RuntimeError("Map generator is not available")
 
-    map_data, rooms, room_tile_map, corridor_tiles, exit_pos, exit_room_idx = generate_dungeon(
+    map_data, rooms, room_tile_map, corridor_tiles, exit_pos, exit_room_idx, exit_door_positions = generate_dungeon(
         map_width, map_height, game_cfg, spawn_corner)
 
     payload: MapPayload = {
@@ -225,9 +221,9 @@ def generate_and_store_map(map_width: int, map_height: int, game_cfg,
         "corridor_tiles": set(corridor_tiles),
         "exit_pos": exit_pos,
         "exit_room_idx": exit_room_idx,
+        "exit_door_positions": exit_door_positions,
         "spawn_corner": spawn_corner,
     }
 
     save_map_payload(payload, map_name=map_name)
     return payload
-

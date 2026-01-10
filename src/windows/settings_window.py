@@ -30,7 +30,6 @@ class SettingsView(arcade.View):
         self.music_volume = ProjectSettings.Settings.DEFAULT_MUSIC_VOLUME
         self.custom_sounds = []
 
-        # Фон
         self.background_texture = None
         self.background_list = arcade.SpriteList()
         self.background_sprite = None
@@ -514,7 +513,7 @@ class SettingsView(arcade.View):
                             self.saved_window_width, self.saved_window_height)
                     except:
                         pass
-            
+
             self._ensure_background_sprite()
             self.update_background_scale()
 
@@ -543,19 +542,19 @@ class SettingsView(arcade.View):
                 # Центр экрана
                 center_x = self.width / 2.0
                 center_y = self.height / 2.0
-                
+
                 # Масштабируем так, чтобы покрыть весь экран
                 texture_width = self.background_texture.width
                 texture_height = self.background_texture.height
-                
+
                 if texture_width > 0 and texture_height > 0:
                     scale_x = self.width / texture_width
                     scale_y = self.height / texture_height
                     scale = max(scale_x, scale_y)
-                    
+
                     scaled_width = texture_width * scale
                     scaled_height = texture_height * scale
-                    
+
                     # Рисуем текстуру в центре экрана
                     arcade.draw_texture_rectangle(
                         center_x, center_y,
@@ -574,10 +573,11 @@ class SettingsView(arcade.View):
     def _ensure_background_sprite(self):
         """Ensure background texture is loaded."""
         try:
-            bg_path = getattr(ProjectSettings.StartWindow, 'BACKGROUND_IMAGE', None)
+            bg_path = getattr(ProjectSettings.StartWindow,
+                              'BACKGROUND_IMAGE', None)
             if not bg_path:
                 return
-            
+
             if self.background_texture is None:
                 try:
                     self.background_texture = arcade.load_texture(bg_path)
