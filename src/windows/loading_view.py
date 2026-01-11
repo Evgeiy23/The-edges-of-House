@@ -41,6 +41,10 @@ class LoadingView(arcade.View):
         self.story_initialized = False
         self.show_start_prompt = False
         self.prompt_display_timer = 0.0
+        
+        # Новые поля для аудиофайлов
+        self.story_audio_files = []
+        self.current_story_audio_index = 0
 
     def setup_story_ui(self):
         """Setup UI for story display with 'Next' button"""
@@ -108,9 +112,10 @@ class LoadingView(arcade.View):
         # Move to next story line or show start prompt
         self.current_story_line = self.story_lines.pop(
             0) if self.story_lines else None
+        self.current_story_audio_index += 1
         self.story_line_timer = self.story_line_duration if self.current_story_line else 0.0
         if self.current_story_line:
-            self.play_story_audio(self.current_story_line)
+            self.play_story_audio_line(self.current_story_audio_index)
         else:
             self.show_start_prompt = True
             # Disable story UI when no more story lines
@@ -283,11 +288,22 @@ class LoadingView(arcade.View):
         )
         self.story_lines = [line.strip()
                             for line in text.split("\n") if line.strip()]
+        
+        # Сопоставляем линии с аудиофайлами
+        root_dir = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
+        self.story_audio_files = [
+            os.path.join(root_dir, "music", "story_audio", "store1.mp3"),
+            os.path.join(root_dir, "music", "story_audio", "store2.mp3"),
+            os.path.join(root_dir, "music", "story_audio", "store3.mp3")
+        ]
+        
         self.current_story_line = self.story_lines.pop(
             0) if self.story_lines else None
+        self.current_story_audio_index = 0
         self.story_line_timer = self.story_line_duration
+        
         if self.current_story_line:
-            self.play_story_audio(self.current_story_line)
+            self.play_story_audio_line(self.current_story_audio_index)
             # Enable story UI when there's a story line to show
             self.story_manager.enable()
 
@@ -297,11 +313,34 @@ class LoadingView(arcade.View):
             if self.story_line_timer <= 0:
                 self.current_story_line = self.story_lines.pop(
                     0) if self.story_lines else None
+                self.current_story_audio_index += 1
                 self.story_line_timer = self.story_line_duration if self.current_story_line else 0.0
                 if self.current_story_line:
-                    self.play_story_audio(self.current_story_line)
+                    self.play_story_audio_line(self.current_story_audio_index)
                 else:
                     self.show_start_prompt = True
+
+    def play_story_audio_line(self, audio_index):
+        """Воспроизводит аудиофайл для конкретной линии"""
+        if 0 <= audio_index < len(self.story_audio_files):
+            audio_path = self.story_audio_files[audio_index]
+            if os.path.exists(audio_path):
+                try:
+                    # Останавливаем предыдущее аудио
+                    if self.story_audio_player:
+                        try:
+                            arcade.stop_sound(self.story_audio_player)
+                        except:
+                            pass
+                    
+                    sound = arcade.load_sound(audio_path)
+                    if sound:
+                        self.story_audio_player = arcade.play_sound(sound)
+                        print(f"Воспроизводится аудиофайл: {audio_path}")
+                except Exception as e:
+                    print(f"Ошибка воспроизведения аудио: {e}")
+            else:
+                print(f"Аудиофайл не найден: {audio_path}")
 
     def play_story_audio(self, text):
         import threading

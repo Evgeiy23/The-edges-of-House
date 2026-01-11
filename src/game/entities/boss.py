@@ -122,6 +122,54 @@ class Boss:
                 if self.current_animation_frames:
                     self.sprite.texture = self.current_animation_frames[0]
 
+    def wander(self, delta_time, is_walkable_func=None):
+        """Случайное блуждание"""
+        if self.is_dead or self.is_attacking:
+            return
+
+        # Инициализация таймера блуждания, если его нет
+        if not hasattr(self, 'wander_timer'):
+            self.wander_timer = 0.0
+            self.wander_angle = random.uniform(0, 2 * math.pi)
+            
+        self.wander_timer -= delta_time
+        if self.wander_timer <= 0:
+            self.wander_timer = random.uniform(1.0, 3.0)
+            self.wander_angle = random.uniform(0, 2 * math.pi)
+            
+        speed = self.move_speed * self.tile_size * 0.5 # Медленнее, чем при погоне
+        dx = math.cos(self.wander_angle) * speed * delta_time
+        dy = math.sin(self.wander_angle) * speed * delta_time
+        
+        new_x = self.draw_pos[0] + dx
+        new_y = self.draw_pos[1] + dy
+        
+        can_move = True
+        if is_walkable_func:
+            # Проверяем проходимость клетки
+            grid_x = int(round((new_x - self.tile_size // 2) / self.tile_size))
+            grid_y = int(round((new_y - self.tile_size // 2) / self.tile_size))
+            if not is_walkable_func(grid_x, grid_y):
+                can_move = False
+                # Уперлись в стену - меняем направление
+                self.wander_angle += math.pi + random.uniform(-0.5, 0.5)
+                self.wander_timer = 0.5 # Быстрая смена направления
+
+        if can_move:
+            self.draw_pos[0] = new_x
+            self.draw_pos[1] = new_y
+            self.pos[0] = int(round((self.draw_pos[0] - self.tile_size // 2) / self.tile_size))
+            self.pos[1] = int(round((self.draw_pos[1] - self.tile_size // 2) / self.tile_size))
+            self.sprite.center_x = self.draw_pos[0]
+            self.sprite.center_y = self.draw_pos[1]
+            
+            # Обновляем направление
+            if abs(dx) > abs(dy):
+                self.facing = 'right' if dx > 0 else 'left'
+            else:
+                self.facing = 'back' if dy > 0 else 'front'
+            self._update_animation()
+
     def move_towards_player(self, player_pixel_pos, delta_time):
         """Движение к игроку (плавное)"""
         if self.is_dead or self.is_attacking:
@@ -173,8 +221,8 @@ class Boss:
             
             # FIX: Check if player moved away during attack
             if player_pos:
-                dx = self.center_x - player_pos[0]
-                dy = self.center_y - player_pos[1]
+                dx = self.sprite.center_x - player_pos[0]
+                dy = self.sprite.center_y - player_pos[1]
                 dist_sq = dx*dx + dy*dy
                 # If player is out of reach (plus a small buffer), cancel attack
                 # Using a slightly larger range than attack_range to prevent flickering

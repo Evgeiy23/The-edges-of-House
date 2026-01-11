@@ -8,6 +8,7 @@ import math
 import asyncio
 import edge_tts
 import random
+import time
 from project import ProjectSettings
 from utils import get_config_path, get_savegame_path
 from game.logic.music import find_music_file, play_loop, stop_player, play_once
@@ -88,6 +89,7 @@ class GameWindow(arcade.View):
         self.player_damage_multiplier = 1.0
         self.player_damage_flat = 0
         self.player_move_speed_multiplier = 1.0
+        self.passage_opening_effect = None
         self.player_attack_duration_multiplier = 1.0
         self.player_dodge_chance = 0.0
         self.damage_buff_timer = 0.0
@@ -100,32 +102,32 @@ class GameWindow(arcade.View):
 
         self.camera_window_width = 0
         self.camera_window_height = 0
-        self.camera_lerp_speed = 0.1  # More smooth camera movement
+        self.camera_lerp_speed = 0.1  # Более плавное движение камеры
         self.camera_target_pos = None
 
-        # Camera shake variables
+        # Переменные тряски камеры
         self.camera_shake_intensity = 0
         self.camera_shake_duration = 0
         self.camera_original_pos = None
 
-        # Story display variables
+        # Переменные отображения истории
         self.story_showing = False
         self.story_buttons_enabled = False
 
-        # Initialize managers
+        # Инициализация менеджеров
         self.manager = arcade.gui.UIManager()
         self.manager.disable()
 
         self.pause_manager = arcade.gui.UIManager()
         self.pause_manager.disable()
 
-        # Story UI manager - must be created before setup_story_ui
+        # Менеджер интерфейса истории - должен быть создан перед setup_story_ui
         self.story_manager = arcade.gui.UIManager()
         self.story_manager.disable()
 
-        # Initialize the story text
+        # Инициализация текста истории
         self.display_story_text()
-        # Setup story UI but don't show it initially
+        # Настройка интерфейса истории, но не показываем его изначально
         if self.window:
             self.setup_story_ui()
 
@@ -151,20 +153,20 @@ class GameWindow(arcade.View):
         self.player_dead_message = None  # Сообщение о смерти игрока
         self.death_message_timer = 0.0  # Таймер для отображения сообщения
 
-        # Story variables
+        # Переменные истории
         self.story_lines = []
         self.current_story_line = None
         self.current_story_text_object = None  # Для оптимизации отрисовки
         self.story_line_timer = 0.0
-        self.story_display_duration = 15.0  # Seconds per line
+        self.story_display_duration = 15.0  # Секунд на строку
         self.story_audio_player = None
         self.pending_audio_path = None
         self.camera_lerp_speed = 0.1
 
         self._setup_difficulty_visibility()
-        # Reduce view radius for all difficulties to make it smaller
+        # Уменьшаем радиус обзора для всех сложностей
         self.view_radius = max(3, int(self.view_radius * 0.7)
-                               )  # Reduce view radius by 30%
+                               )  # Уменьшаем радиус обзора на 30%
 
         self.load_settings()
         if load_save:
@@ -227,6 +229,50 @@ class GameWindow(arcade.View):
 
         self.dungeon_map.exit_door_closed = True
         self.update_visibility()
+
+    def open_exit_passage(self):
+        """Открывает проход после смерти босса"""
+        if not self.dungeon_map or not self.dungeon_map.exit_door_closed:
+            return
+
+        # Открываем проход - убираем стены на позициях прохода
+        for x, y in self.dungeon_map.exit_door_positions:
+            if 0 <= x < self.dungeon_map.map_width and 0 <= y < self.dungeon_map.map_height:
+                # Не трогаем сам выход (тайл 3)
+                if self.dungeon_map.get_tile_value(x, y) != 3:
+                    self.dungeon_map.map_data[y][x] = 0  # Делаем полом
+                    # Добавляем в коридоры
+                    self.dungeon_map.corridor_tiles.add((x, y))
+
+        self.dungeon_map.exit_door_closed = False
+        self.update_visibility()
+        
+        # Визуальные и звуковые эффекты открытия прохода
+        self.trigger_passage_opening_effects()
+        print("Проход открыт! Босс повержен!")
+
+    def trigger_passage_opening_effects(self):
+        """Запускает визуальные и звуковые эффекты открытия прохода"""
+        # Визуальный эффект - создаем частицы или вспышку
+        self.passage_opening_effect = {
+            'active': True,
+            'start_time': time.time(),
+            'duration': 2.0,  # Длительность эффекта в секундах
+            'particles': []
+        }
+        
+        # Звуковой эффект
+        try:
+            # Загружаем звук открытия прохода
+            passage_sound = arcade.load_sound("resources/sounds/passage_open.wav")
+            arcade.play_sound(passage_sound, volume=0.7)
+        except:
+            # Если звук не найден, используем стандартный звук
+            try:
+                success_sound = arcade.load_sound("resources/sounds/success.wav")
+                arcade.play_sound(success_sound, volume=0.5)
+            except:
+                pass  # Если звуки не загружены, просто продолжаем
 
     def stop_game_music(self):
         stop_player(self.game_music_player)
@@ -300,7 +346,7 @@ class GameWindow(arcade.View):
         self.dungeon_map = DungeonMap(
             self.map_width, self.map_height, self.tile_size, game_cfg, self.spawn_corner, map_payload=payload)
 
-        # Create player with proper OpenGL context
+        # Создаем игрока с правильным контекстом OpenGL
         self.player = Player(self.tile_size)
 
         self.visible_tiles = set()
@@ -845,10 +891,10 @@ class GameWindow(arcade.View):
     def _setup_difficulty_visibility(self):
         if self.difficulty == self.DIFFICULTY_EASY:
             self.view_radius = 8  # Уменьшено с 12
-            self.use_fov = True  # Enable FOV for all difficulties
+            self.use_fov = True  # Включаем FOV для всех сложностей
         elif self.difficulty == self.DIFFICULTY_MEDIUM:
             self.view_radius = 6  # Уменьшено с 8
-            self.use_fov = True  # Enable FOV for all difficulties
+            self.use_fov = True  # Включаем FOV для всех сложностей
         else:
             self.view_radius = 4  # Уменьшено с 5
             self.use_fov = True
@@ -895,16 +941,16 @@ class GameWindow(arcade.View):
             # Добавляем все тайлы из комнаты босса в видимые
             self.visible_tiles.update(current_room_tiles)
 
-        # Check if boss is defeated to determine if exit should be visible
+        # Проверяем, побежден ли босс, чтобы определить видимость выхода
         boss_defeated = len(
             [boss for boss in self.bosses if boss.is_alive()]) == 0
 
-        # If exit exists and boss is not defeated, hide exit tiles from visibility
+        # Если выход существует и босс не побежден, скрываем тайлы выхода
         if self.dungeon_map.exit_pos and not boss_defeated:
             exit_x, exit_y = self.dungeon_map.exit_pos
-            # Remove exit tiles from visibility if boss is not defeated
+            # Убираем тайлы выхода из видимости, если босс не побежден
             self.visible_tiles.discard((exit_x, exit_y))
-            # Also remove adjacent exit door positions if they exist
+            # Также убираем позиции дверей выхода, если они существуют
             for door_pos in self.dungeon_map.exit_door_positions:
                 self.visible_tiles.discard(door_pos)
 
@@ -1181,7 +1227,7 @@ class GameWindow(arcade.View):
             arcade.schedule(lambda dt: self._switch_to_difficulty_dialog(), 0)
 
     def _switch_to_difficulty_dialog(self):
-        """Switch to difficulty dialog on the main thread to avoid OpenGL context issues"""
+        """Переключает на диалог сложности в основном потоке, чтобы избежать проблем с контекстом OpenGL"""
         if self.window:
             from windows.difficulty_dialog import DifficultyDialog
             dialog = DifficultyDialog(self.difficulty, self)
@@ -1200,7 +1246,7 @@ class GameWindow(arcade.View):
             arcade.schedule(lambda dt: self._switch_to_start_window(), 0)
 
     def _switch_to_start_window(self):
-        """Switch to start window on the main thread to avoid OpenGL context issues"""
+        """Переключает на стартовое окно в основном потоке, чтобы избежать проблем с контекстом OpenGL"""
         if self.window:
             from windows.start_window import StartWindow
             start_view = StartWindow()
@@ -1330,6 +1376,7 @@ class GameWindow(arcade.View):
         if self.camera:
             self.camera.use()
             self.draw_map()  # Здесь рисуются стены, пол, игроки и боссы
+            self.draw_passage_opening_effect()
 
         # Возвращаемся к UI камере для отрисовки интерфейса
         self.ui_camera.use()
@@ -1349,12 +1396,53 @@ class GameWindow(arcade.View):
             self.draw_player_health()
             self.draw_death_message()
 
+    def draw_passage_opening_effect(self):
+        """Рисует эффект открытия прохода"""
+        if not self.passage_opening_effect or not self.passage_opening_effect['active']:
+            return
+
+        effect = self.passage_opening_effect
+        elapsed = time.time() - effect['start_time']
+
+        if elapsed > effect['duration']:
+            effect['active'] = False
+            return
+
+        # Создаем новые частицы
+        if len(effect['particles']) < 100:
+            for _ in range(5):
+                pos = random.choice(self.dungeon_map.exit_door_positions)
+                x = (pos[0] + 0.5) * self.tile_size
+                y = (pos[1] + 0.5) * self.tile_size
+                particle = {
+                    'x': x,
+                    'y': y,
+                    'dx': random.uniform(-2, 2),
+                    'dy': random.uniform(3, 7),
+                    'size': random.uniform(3, 8),
+                    'color': random.choice([arcade.color.WHITE, arcade.color.YELLOW, arcade.color.ORANGE]),
+                    'alpha': 255
+                }
+                effect['particles'].append(particle)
+
+        # Обновляем и рисуем частицы
+        for p in effect['particles']:
+            p['x'] += p['dx']
+            p['y'] += p['dy']
+            p['alpha'] -= 5
+            if p['alpha'] > 0:
+                arcade.draw_circle_filled(p['x'], p['y'], p['size'], (*p['color'], p['alpha']))
+
+        # Удаляем старые частицы
+        effect['particles'] = [p for p in effect['particles'] if p['alpha'] > 0]
+
+
     def on_update(self, delta_time):
-        # Check for pending audio from thread
+        # Проверяем наличие ожидающего аудио из потока
         if self.pending_audio_path:
             try:
                 if os.path.exists(self.pending_audio_path):
-                    # Stop previous
+                    # Останавливаем предыдущее
                     if self.story_audio_player:
                         try:
                             arcade.stop_sound(self.story_audio_player)
@@ -1449,11 +1537,11 @@ class GameWindow(arcade.View):
 
             self.player.update_animation(delta_time)
 
-            # Camera follow logic
+            # Логика следования камеры
             if self.player:
                 player_pixel_x, player_pixel_y = self.player.get_pixel_position()
 
-                # Smooth camera follow
+                # Плавное следование камеры
                 target_cam_x = player_pixel_x
                 target_cam_y = player_pixel_y
 
@@ -1467,12 +1555,12 @@ class GameWindow(arcade.View):
                 else:
                     self.camera.position = (target_cam_x, target_cam_y)
 
-            # Update camera shake
+            # Обновление тряски камеры
             if self.camera_shake_duration > 0:
                 self.camera_shake_duration -= delta_time
                 if self.camera_shake_duration <= 0:
                     self.camera_shake_duration = 0
-                    # Reset to original position
+                    # Сброс к исходной позиции
                     if self.camera_original_pos:
                         self.camera.position = self.camera_original_pos
                         self.camera_original_pos = None
@@ -1518,6 +1606,10 @@ class GameWindow(arcade.View):
                     if visible and boss.attack_player(player_pixel_pos):
                         if random.random() >= self.player_dodge_chance:
                             self.player.take_damage(boss.attack_damage)
+                elif boss.boss_type != "Caveman Boss":
+                    # Если враг (не босс) в другой комнате, он бродит
+                    boss.update(delta_time, None)
+                    boss.wander(delta_time, lambda x, y: self.dungeon_map.is_walkable(x, y))
 
             # Проверка смерти игрока (если еще не обработана)
             if self.player and not self.player.is_alive() and not self.player_dead_message:
@@ -1565,18 +1657,24 @@ class GameWindow(arcade.View):
             self.stop_game_music()
         except Exception:
             pass
-        abs_path = "/Users/evgen/Downloads/The-edges-of-House 4/music/male-voice-that-says-quotgame-overquot.mp3"
-        local_path = os.path.join(os.path.dirname(os.path.dirname(
-            __file__)), "music", "sound_effects", "game_over_voice.mp3")
-        go_path = abs_path if os.path.exists(abs_path) else local_path
-        self.game_over_player, self.game_over_sound = play_once(
-            go_path, self.sound_volume)
+        
+        # Исправленный путь к звуку Game Over
+        # Поднимаемся на 3 уровня вверх: src/windows/game_window.py -> src/windows -> src -> root
+        root_dir = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
+        go_path = os.path.join(root_dir, "music", "sound_effects", "game_over_voice.mp3")
+        
+        if os.path.exists(go_path):
+             self.game_over_player, self.game_over_sound = play_once(go_path, self.sound_volume)
+        else:
+             print(f"Звук Game Over не найден: {go_path}")
 
     def handle_boss_death(self, boss):
         """Обрабатывает смерть босса"""
         if boss in self.bosses:
             self.bosses.remove(boss)
             print(f"Босс {boss.boss_type} убит и удалён из списка.")
+            # Открываем проход после смерти босса
+            self.open_exit_passage()
             # Можно добавить эффекты смерти, звуки и т.д.
             cx, cy = self.camera.position
 
@@ -1898,7 +1996,7 @@ class GameWindow(arcade.View):
                         if self.player.move(dx, dy):
                             self._on_player_moved()
                     self.move_timer = self.move_cooldown
-        elif key == arcade.key.Q:
+        elif key == arcade.key.Q or key == 1081 or key == 1049:  # 1081='й', 1049='Й'
             if 0 <= self.selected_slot < len(self.inventory):
                 item = self.inventory[self.selected_slot]
                 icon_id = item.get("icon_id")
@@ -2068,11 +2166,11 @@ class GameWindow(arcade.View):
 
             boss_x, boss_y = boss.draw_pos
             
-            # FIX: Check if boss is visible (prevent hitting through walls)
+            # ИСПРАВЛЕНИЕ: Проверяем видимость босса (предотвращаем атаку сквозь стены)
             bx_grid = int(boss_x / self.tile_size)
             by_grid = int(boss_y / self.tile_size)
             
-            # Use visibility_grid if available for more precise check
+            # Используем сетку видимости, если она доступна, для более точной проверки
             is_visible = False
             if self.visibility_grid and 0 <= by_grid < len(self.visibility_grid) and 0 <= bx_grid < len(self.visibility_grid[0]):
                 is_visible = self.visibility_grid[by_grid][bx_grid]
@@ -2093,7 +2191,7 @@ class GameWindow(arcade.View):
 
                 # Разница углов
                 angle_diff = boss_angle - attack_dir
-                # Нормализация угла (-pi to pi)
+                # Нормализация угла (от -pi до pi)
                 while angle_diff > math.pi:
                     angle_diff -= 2*math.pi
                 while angle_diff < -math.pi:
@@ -2206,14 +2304,14 @@ class GameWindow(arcade.View):
         batches = {
             'visible_exit': [],
             'seen_exit': [],
-            # Fallback for untextured
+            # Запасной вариант для объектов без текстур
             'visible_wall': [],
             'seen_wall': [],
             'visible_floor': [],
             'seen_floor': []
         }
         
-        # Value -> {'visible': [], 'seen': []}
+        # Значение -> {'visible': [], 'seen': []}
         texture_batches = {}
 
         use_grid = self.visibility_grid is not None
@@ -2287,13 +2385,21 @@ class GameWindow(arcade.View):
             
             # Visible
             for cx, cy in lists['visible']:
-                rect = arcade.types.Rect(cx - tile_size / 2, cy - tile_size / 2, tile_size, tile_size)
+                left = cx - tile_size / 2
+                right = cx + tile_size / 2
+                bottom = cy - tile_size / 2
+                top = cy + tile_size / 2
+                rect = arcade.types.Rect(left, right, bottom, top, tile_size, tile_size, cx, cy)
                 arcade.draw_texture_rect(tex, rect)
                 
             # Seen (Tinted)
-            color = (100, 100, 110)
+            color = arcade.types.Color(100, 100, 110)
             for cx, cy in lists['seen']:
-                rect = arcade.types.Rect(cx - tile_size / 2, cy - tile_size / 2, tile_size, tile_size)
+                left = cx - tile_size / 2
+                right = cx + tile_size / 2
+                bottom = cy - tile_size / 2
+                top = cy + tile_size / 2
+                rect = arcade.types.Rect(left, right, bottom, top, tile_size, tile_size, cx, cy)
                 arcade.draw_texture_rect(tex, rect, color=color)
 
         color_batches = {
@@ -2828,6 +2934,18 @@ class GameWindow(arcade.View):
                     os.remove(filename)
                 except:
                     pass
+
+            communicate = edge_tts.Communicate(text, 'ru-RU-DmitryNeural')
+            await communicate.save(filename)
+
+            if os.path.exists(filename):
+                self.pending_audio_path = filename
+                print(f"Audio generated: {filename}")
+            else:
+                print(f"Failed to generate audio file: {filename}")
+
+        except Exception as e:
+            print(f"Ошибка при озвучивании текста: {e}")
 
             communicate = edge_tts.Communicate(text, 'ru-RU-DmitryNeural')
             await communicate.save(filename)
