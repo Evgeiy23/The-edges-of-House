@@ -16,13 +16,11 @@ from game.logic.map.storage import generate_and_store_map
 from game.entities.player import Player
 from game.entities.boss import Boss
 from game.map.dungeon_map import DungeonMap
+from game.items.effects import ITEM_EFFECTS
+
 
 
 class GameWindow(arcade.View):
-    DIFFICULTY_EASY = ProjectSettings.Game.DIFFICULTY_EASY
-    DIFFICULTY_MEDIUM = ProjectSettings.Game.DIFFICULTY_MEDIUM
-    DIFFICULTY_HARD = ProjectSettings.Game.DIFFICULTY_HARD
-
     @staticmethod
     def compute_map_dimensions(level, game_cfg):
         base_width = game_cfg.SCREEN_WIDTH // game_cfg.TILE_SIZE
@@ -39,8 +37,12 @@ class GameWindow(arcade.View):
         map_height = int(base_height * height_mult * game_cfg.MAP_SCALE)
         return map_width, map_height
 
-    def __init__(self, difficulty=None, load_save=False, map_payload=None, map_name="current", level_override=None, spawn_corner=None):
+    def __init__(self, load_save=False, map_payload=None, map_name="current", level_override=None, spawn_corner=None, difficulty=None):
         super().__init__()
+        
+        # Always use easy difficulty
+        self.DIFFICULTY_EASY = ProjectSettings.Game.DIFFICULTY_EASY
+        self.difficulty = difficulty or ProjectSettings.Game.DIFFICULTY_EASY
 
         self.screen_width = 0
         self.screen_height = 0
@@ -57,7 +59,6 @@ class GameWindow(arcade.View):
         self.explored_grid = None
         self.use_fov = False
         self.view_radius = 8
-        self.hard_save_used = False
         self.save_point_pos = None
         self.save_point_used = False
         self.level = level_override or 1
@@ -147,9 +148,7 @@ class GameWindow(arcade.View):
         self.move_anim_start = [0.0, 0.0]
         self.move_anim_target = [0.0, 0.0]
 
-        self.difficulty = difficulty or self.DIFFICULTY_EASY
         self.show_pause_menu = False
-        self.hard_save_used = False
         self.player_dead_message = None  # Сообщение о смерти игрока
         self.death_message_timer = 0.0  # Таймер для отображения сообщения
 
@@ -163,10 +162,9 @@ class GameWindow(arcade.View):
         self.pending_audio_path = None
         self.camera_lerp_speed = 0.1
 
-        self._setup_difficulty_visibility()
-        # Уменьшаем радиус обзора для всех сложностей
-        self.view_radius = max(3, int(self.view_radius * 0.7)
-                               )  # Уменьшаем радиус обзора на 30%
+        # Настройка видимости (всегда полная для легкого уровня)
+        self.use_fov = False
+        self.view_radius = 20  # Большой радиус для комфортной игры
 
         self.load_settings()
         if load_save:
@@ -215,19 +213,12 @@ class GameWindow(arcade.View):
 
     def close_exit_door(self):
         """Закрывает проход в комнату с выходом"""
-        if not self.dungeon_map or self.dungeon_map.exit_door_closed:
+        if not self.dungeon_map:
             return
 
-        # Закрываем проход - ставим стены на позициях прохода
-        for x, y in self.dungeon_map.exit_door_positions:
-            if 0 <= x < self.dungeon_map.map_width and 0 <= y < self.dungeon_map.map_height:
-                # Не закрываем сам выход (тайл 3)
-                if self.dungeon_map.get_tile_value(x, y) != 3:
-                    self.dungeon_map.map_data[y][x] = 1
-                    # Убираем из коридоров
-                    self.dungeon_map.corridor_tiles.discard((x, y))
-
-        self.dungeon_map.exit_door_closed = True
+        # Используем метод из DungeonMap, который обновляет данные карты и коллизии
+        self.dungeon_map.close_exit_door()
+        
         self.update_visibility()
 
     def open_exit_passage(self):
@@ -359,10 +350,8 @@ class GameWindow(arcade.View):
         if self.player and hasattr(self.player, "draw_pos"):
             self.move_anim_start = list(self.player.draw_pos)
             self.move_anim_target = list(self.player.draw_pos)
-        if self.difficulty in (self.DIFFICULTY_MEDIUM, self.DIFFICULTY_HARD):
-            self.place_save_point()
-        else:
-            self.save_point_pos = None
+        # Easy difficulty - no save points
+        self.save_point_pos = None
 
         self.place_player()
         self.place_bosses()
@@ -652,68 +641,63 @@ class GameWindow(arcade.View):
         self.dropped_item_sprites.append(sp)
 
     def apply_inventory_effects(self):
-        dmg_mult = 1.0
-        dmg_flat = 0
+        if not self.player:
+            return
+
+        # Reset to base stats
+        self.player.move_speed = self.player.base_move_speed
+        self.player.attack_duration = self.player.base_attack_duration
+        self.player.health_regen_amount = self.player.base_health_regen_amount
+        self.player.has_double_strike = False
+        self.player.bonus_damage_percent = 0.0
+        self.player.bonus_damage_flat = 0
+        self.player.dodge_chance = 0.0
+        
+        # Accumulators
         move_mult = 1.0
-        atk_mult = 1.0
-        dodge = 0.0
+        atk_speed_mult = 1.0
+        max_hp_mult = 1.0
+        regen_mult = 1.0
+        
         for item in self.inventory:
             iid = item.get("icon_id")
-            if iid == 2:
-                dmg_mult += 0.05
-            elif iid == 3:
-                self.player.health_regen_amount = int(
-                    self.player.health_regen_amount * 1.02)
-            elif iid == 4:
-                atk_mult *= 0.95
-            elif iid == 13:
-                dmg_mult += 0.10
-                move_mult += 0.02
-            elif iid == 14:
-                atk_mult *= 0.98
-            elif iid == 15:
-                move_mult += 0.10
-            elif iid == 17:
-                pass
-            elif iid == 19:
-                dodge += 0.07
-            elif iid == 20:
-                dodge += 0.05
-            elif iid == 21:
-                dodge += 0.05
-            elif iid == 23:
-                dodge += 0.17
-            elif iid == 24:
-                dmg_flat += 5
-            elif iid == 25:
-                dmg_mult += 0.06
-                move_mult -= 0.02
-            elif iid == 26:
-                dmg_mult += 0.07
-                move_mult -= 0.05
-            elif iid == 30:
-                dmg_flat += 5
-            elif iid == 32:
-                dmg_mult += 0.05
-                move_mult += 0.05
-            elif iid == 43 or iid == 44:
-                self.player.heal(int(self.player.max_health * 0.20))
-            elif iid == 45:
-                self.player.heal(int(self.player.max_health * 0.45))
-            elif iid == 46:
-                self.damage_buff_timer = max(self.damage_buff_timer, 30.0)
-                self.damage_buff_multiplier = 1.25
-        self.player_damage_multiplier = dmg_mult
-        self.player_damage_flat = dmg_flat
-        self.player_move_speed_multiplier = max(0.3, move_mult)
-        self.player_attack_duration_multiplier = max(0.5, atk_mult)
-        self.player_dodge_chance = min(0.9, dodge)
-        if self.player:
-            self.player.move_speed = 5.0 * self.player_move_speed_multiplier
-            self.player.attack_duration = 0.5 * self.player_attack_duration_multiplier
-        return
+            effect = ITEM_EFFECTS.get(iid)
+            if not effect:
+                continue
+            
+            self.player.bonus_damage_percent += effect.get("dmg_pct", 0)
+            self.player.bonus_damage_flat += effect.get("dmg_flat", 0)
+            move_mult += effect.get("move_pct", 0)
+            atk_speed_mult += effect.get("atk_speed_pct", 0)
+            max_hp_mult += effect.get("max_hp_pct", 0)
+            regen_mult += effect.get("regen_pct", 0)
+            self.player.dodge_chance += effect.get("dodge", 0)
+            
+            if effect.get("special") == "double_strike":
+                self.player.has_double_strike = True
+                
+
+        # Finalize
+        self.player.move_speed *= max(0.1, move_mult)
+        # Attack speed increases means duration decreases.
+        self.player.attack_duration = self.player.base_attack_duration / max(0.1, 1.0 + atk_speed_mult)
+        
+        old_max = self.player.max_health
+        new_max = int(self.player.base_max_health * max(1.0, 1.0 + max_hp_mult))
+        
+        if new_max != self.player.max_health:
+            self.player.max_health = new_max
+            # Heal the difference if max hp increased
+            if new_max > old_max:
+                self.player.health += (new_max - old_max)
+             
+        self.player.health_regen_amount = int(self.player.base_health_regen_amount * max(1.0, 1.0 + regen_mult))
 
     def get_item_description(self, icon_id):
+        # Check if it has an effect description first
+        if icon_id in ITEM_EFFECTS and "desc" in ITEM_EFFECTS[icon_id]:
+            return ITEM_EFFECTS[icon_id]["desc"]
+
         m = {
             1: None,
             2: "Талисман урон +5%",
@@ -889,15 +873,9 @@ class GameWindow(arcade.View):
         return visible
 
     def _setup_difficulty_visibility(self):
-        if self.difficulty == self.DIFFICULTY_EASY:
-            self.view_radius = 8  # Уменьшено с 12
-            self.use_fov = True  # Включаем FOV для всех сложностей
-        elif self.difficulty == self.DIFFICULTY_MEDIUM:
-            self.view_radius = 6  # Уменьшено с 8
-            self.use_fov = True  # Включаем FOV для всех сложностей
-        else:
-            self.view_radius = 4  # Уменьшено с 5
-            self.use_fov = True
+        # Easy difficulty settings
+        self.view_radius = 8
+        self.use_fov = True
 
     def update_visibility(self):
         self.visible_tiles.clear()
@@ -975,17 +953,7 @@ class GameWindow(arcade.View):
                     self.explored_grid[y][x] = True
 
     def save_game(self):
-        if self.difficulty == self.DIFFICULTY_EASY:
-            save_file = get_savegame_path()
-        elif self.difficulty == self.DIFFICULTY_MEDIUM:
-            save_file = get_savegame_path()
-        elif self.difficulty == self.DIFFICULTY_HARD:
-            if self.hard_save_used:
-                return False
-            save_file = get_savegame_path()
-            self.hard_save_used = True
-        else:
-            return False
+        save_file = get_savegame_path()
 
         try:
             game_data = {
@@ -1003,12 +971,10 @@ class GameWindow(arcade.View):
                 "exit_music_played": self.exit_music_played,
                 "music_volume": self.music_volume,
                 "sound_volume": self.sound_volume,
-                "hard_save_used": self.hard_save_used,
                 "save_point_pos": self.save_point_pos,
                 "save_point_used": self.save_point_used,
             }
             save_data = {
-                'difficulty': self.difficulty,
                 'game_data': game_data
             }
 
@@ -1027,8 +993,6 @@ class GameWindow(arcade.View):
             try:
                 with open(save_file, 'r', encoding='utf-8') as f:
                     save_data = json.load(f)
-                    self.difficulty = save_data.get(
-                        'difficulty', self.DIFFICULTY_EASY)
 
                     game_data = save_data.get('game_data', {})
 
@@ -1074,8 +1038,6 @@ class GameWindow(arcade.View):
                             "music_volume", self.music_volume)
                         self.sound_volume = game_data.get(
                             "sound_volume", self.sound_volume)
-                        self.hard_save_used = game_data.get(
-                            "hard_save_used", False)
                         self.save_point_pos = tuple(
                             game_data.get("save_point_pos")) if game_data.get("save_point_pos") else None
                         self.save_point_used = game_data.get(
@@ -1083,7 +1045,6 @@ class GameWindow(arcade.View):
                         # Инициализация боссов при загрузке
                         self.bosses = []
                         self.place_bosses()
-                        self._setup_difficulty_visibility()
                         self.update_visibility()
                     else:
                         return False
@@ -1110,73 +1071,33 @@ class GameWindow(arcade.View):
         )
         main_box.add(title_label)
 
-        difficulty_info_label = arcade.gui.UILabel(
-            text=f"Текущая сложность: {self.get_difficulty_text()}",
-            font_size=settings.LABEL_FONT_SIZE,
-            text_color=arcade.color.LIGHT_GRAY,
-            width=settings.SETTINGS_PANEL_WIDTH
-        )
-        main_box.add(difficulty_info_label)
-
         buttons_box = arcade.gui.UIBoxLayout(vertical=True, space_between=15)
 
-        change_difficulty_button = arcade.gui.UIFlatButton(
-            text="Изменить уровень сложности",
+        save_text = "Сохранить игру"
+        save_button = arcade.gui.UIFlatButton(
+            text=save_text,
             width=settings.SETTINGS_PANEL_WIDTH - 20,
             height=settings.BUTTON_HEIGHT
         )
-        change_difficulty_button.style = {
+        save_button.style = {
             "normal": {
-                "bg_color": arcade.color.DARK_GRAY,
+                "bg_color": arcade.color.DARK_GREEN,
                 "border_color": arcade.color.WHITE,
                 "border_width": 2
             },
             "hover": {
-                "bg_color": arcade.color.GRAY,
+                "bg_color": arcade.color.GREEN,
                 "border_color": arcade.color.WHITE,
                 "border_width": 2
             },
             "press": {
-                "bg_color": arcade.color.BLUE,
+                "bg_color": arcade.color.DARK_GREEN,
                 "border_color": arcade.color.WHITE,
                 "border_width": 2
             }
         }
-        change_difficulty_button.on_click = self.on_change_difficulty_click
-        buttons_box.add(change_difficulty_button)
-
-        if self.difficulty in (self.DIFFICULTY_EASY, self.DIFFICULTY_MEDIUM, self.DIFFICULTY_HARD):
-            save_text = "Сохранить игру"
-            if self.difficulty == self.DIFFICULTY_HARD:
-                if self.hard_save_used:
-                    save_text = "Сохранить игру (использовано)"
-                else:
-                    save_text = "Сохранить игру (1 раз на уровень)"
-
-            save_button = arcade.gui.UIFlatButton(
-                text=save_text,
-                width=settings.SETTINGS_PANEL_WIDTH - 20,
-                height=settings.BUTTON_HEIGHT
-            )
-            save_button.style = {
-                "normal": {
-                    "bg_color": arcade.color.DARK_GREEN if not (self.difficulty == self.DIFFICULTY_HARD and self.hard_save_used) else arcade.color.DARK_GRAY,
-                    "border_color": arcade.color.WHITE,
-                    "border_width": 2
-                },
-                "hover": {
-                    "bg_color": arcade.color.GREEN if not (self.difficulty == self.DIFFICULTY_HARD and self.hard_save_used) else arcade.color.GRAY,
-                    "border_color": arcade.color.WHITE,
-                    "border_width": 2
-                },
-                "press": {
-                    "bg_color": arcade.color.DARK_GREEN if not (self.difficulty == self.DIFFICULTY_HARD and self.hard_save_used) else arcade.color.DARK_GRAY,
-                    "border_color": arcade.color.WHITE,
-                    "border_width": 2
-                }
-            }
-            save_button.on_click = self.on_save_game_click
-            buttons_box.add(save_button)
+        save_button.on_click = self.on_save_game_click
+        buttons_box.add(save_button)
 
         menu_button = arcade.gui.UIFlatButton(
             text="Выйти в главное меню",
@@ -1212,26 +1133,6 @@ class GameWindow(arcade.View):
             anchor_y="center_y"
         )
         self.pause_manager.add(anchor_layout)
-
-    def get_difficulty_text(self):
-        if self.difficulty == self.DIFFICULTY_EASY:
-            return "Легкий"
-        elif self.difficulty == self.DIFFICULTY_MEDIUM:
-            return "Средний"
-        else:
-            return "Сложный"
-
-    def on_change_difficulty_click(self, event):
-        if self.window:
-            import arcade
-            arcade.schedule(lambda dt: self._switch_to_difficulty_dialog(), 0)
-
-    def _switch_to_difficulty_dialog(self):
-        """Переключает на диалог сложности в основном потоке, чтобы избежать проблем с контекстом OpenGL"""
-        if self.window:
-            from windows.difficulty_dialog import DifficultyDialog
-            dialog = DifficultyDialog(self.difficulty, self)
-            self.window.show_view(dialog)
 
     def on_save_game_click(self, event):
         if self.save_game():
@@ -1484,58 +1385,35 @@ class GameWindow(arcade.View):
         if self.camera and self.window and self.player and self.dungeon_map:
             tile_size = self.tile_size
 
-            if self.difficulty == self.DIFFICULTY_EASY:
-                self.player.update_movement(delta_time)
+            # Easy difficulty movement
+            self.player.update_movement(delta_time)
 
-                dx = (1 if self.move_hold["right"] else 0) - \
-                    (1 if self.move_hold["left"] else 0)
-                dy = (1 if self.move_hold["up"] else 0) - \
-                    (1 if self.move_hold["down"] else 0)
+            dx = (1 if self.move_hold["right"] else 0) - \
+                (1 if self.move_hold["left"] else 0)
+            dy = (1 if self.move_hold["up"] else 0) - \
+                (1 if self.move_hold["down"] else 0)
 
-                if dx != 0 and dy != 0:
-                    dx = 0
-                    dy = 0
+            if dx != 0 and dy != 0:
+                dx = 0
+                dy = 0
 
-                self.move_timer -= delta_time
-                if self.move_timer <= 0:
-                    if dx != 0 or dy != 0:
-                        if not self.player.is_moving:
-                            new_x = self.player.pos[0] + dx
-                            new_y = self.player.pos[1] + dy
-                            if self.can_move_to(new_x, new_y):
-                                if self.player.move(dx, dy):
-                                    self._on_player_moved()
-                        self.move_timer = self.move_cooldown
-
-            elif self.difficulty == self.DIFFICULTY_MEDIUM:
-                desired_dx = (1 if self.move_hold["right"] else 0) - \
-                    (1 if self.move_hold["left"] else 0)
-                desired_dy = (1 if self.move_hold["up"] else 0) - \
-                    (1 if self.move_hold["down"] else 0)
-
-                if desired_dx != 0 and desired_dy != 0:
-                    desired_dx = 0
-                    desired_dy = 0
-
-                self.player.update_inertial_movement(
-                    delta_time, (desired_dx, desired_dy))
-                self._check_collisions_and_triggers()
-
-            else:
-                desired_dx = (1 if self.move_hold["right"] else 0) - \
-                    (1 if self.move_hold["left"] else 0)
-                desired_dy = (1 if self.move_hold["up"] else 0) - \
-                    (1 if self.move_hold["down"] else 0)
-
-                if desired_dx != 0 and desired_dy != 0:
-                    desired_dx = 0
-                    desired_dy = 0
-
-                self.player.update_inertial_movement(
-                    delta_time, (desired_dx, desired_dy))
-                self._check_collisions_and_triggers()
+            self.move_timer -= delta_time
+            if self.move_timer <= 0:
+                if dx != 0 or dy != 0:
+                    if not self.player.is_moving:
+                        new_x = self.player.pos[0] + dx
+                        new_y = self.player.pos[1] + dy
+                        if self.can_move_to(new_x, new_y):
+                            if self.player.move(dx, dy):
+                                self._on_player_moved()
+                    self.move_timer = self.move_cooldown
 
             self.player.update_animation(delta_time)
+
+            # Синхронизация удара с анимацией
+            if self.player.should_strike:
+                self.perform_attack_hit_check()
+                self.player.should_strike = False
 
             # Логика следования камеры
             if self.player:
@@ -1640,8 +1518,19 @@ class GameWindow(arcade.View):
                 hits = arcade.check_for_collision_with_list(
                     self.player.sprite, self.dropped_item_sprites)
                 for sp in hits:
+                    icon_id = getattr(sp, "properties", {}).get("icon_id")
+                    effect = ITEM_EFFECTS.get(icon_id)
+                    
+                    # Если предмет имеет длительность (временный эффект), применяем сразу
+                    if effect and "duration" in effect:
+                        if "temp_dmg_pct" in effect:
+                            self.damage_buff_timer = effect["duration"]
+                            self.damage_buff_multiplier = 1.0 + effect["temp_dmg_pct"]
+                            print(f"Применен временный эффект: +{int(effect['temp_dmg_pct']*100)}% урона на {effect['duration']} сек")
+                        sp.remove_from_sprite_lists()
+                        continue
+
                     if len(self.inventory) < 9:
-                        icon_id = getattr(sp, "properties", {}).get("icon_id")
                         self.inventory.append({"icon_id": icon_id})
                         sp.remove_from_sprite_lists()
                         self.apply_inventory_effects()
@@ -1658,15 +1547,7 @@ class GameWindow(arcade.View):
         except Exception:
             pass
         
-        # Исправленный путь к звуку Game Over
-        # Поднимаемся на 3 уровня вверх: src/windows/game_window.py -> src/windows -> src -> root
-        root_dir = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
-        go_path = os.path.join(root_dir, "music", "sound_effects", "game_over_voice.mp3")
-        
-        if os.path.exists(go_path):
-             self.game_over_player, self.game_over_sound = play_once(go_path, self.sound_volume)
-        else:
-             print(f"Звук Game Over не найден: {go_path}")
+        # Звук game_over_voice.mp3 удален по требованию
 
     def handle_boss_death(self, boss):
         """Обрабатывает смерть босса"""
@@ -1989,7 +1870,8 @@ class GameWindow(arcade.View):
             dy = (1 if self.move_hold["up"] else 0) - \
                 (1 if self.move_hold["down"] else 0)
             if dx != 0 or dy != 0:
-                if self.difficulty == self.DIFFICULTY_EASY and not self.player.is_moving:
+                # Easy difficulty movement
+                if not self.player.is_moving:
                     new_x = self.player.pos[0] + dx
                     new_y = self.player.pos[1] + dy
                     if self.can_move_to(new_x, new_y):
@@ -2001,6 +1883,18 @@ class GameWindow(arcade.View):
                 item = self.inventory[self.selected_slot]
                 icon_id = item.get("icon_id")
                 px, py = self.player.get_pixel_position()
+                
+                # Drop item slightly in front of player to avoid immediate pickup
+                drop_dist = 40
+                if self.player.facing == 'left':
+                    px -= drop_dist
+                elif self.player.facing == 'right':
+                    px += drop_dist
+                elif self.player.facing == 'back':
+                    py += drop_dist
+                else: # front
+                    py -= drop_dist
+                    
                 self.spawn_dropped_item(icon_id, px, py)
                 del self.inventory[self.selected_slot]
                 # Сдвигаем инвентарь, если нужно
@@ -2061,6 +1955,57 @@ class GameWindow(arcade.View):
         world_x = cam_x + (screen_x - self.window.width / 2)
         world_y = cam_y + (screen_y - self.window.height / 2)
         return world_x, world_y
+
+    def perform_attack_hit_check(self):
+        """Проверяет попадания атаки игрока"""
+        if not self.player:
+            return
+
+        hb = self.player.get_attack_hitbox()
+        if not hb:
+            return
+
+        damage_mult = 1.0 + self.player.bonus_damage_percent
+        if self.damage_buff_timer > 0:
+            damage_mult += (self.damage_buff_multiplier - 1.0)
+            
+        damage = int((self.player.base_damage + self.player.bonus_damage_flat) * damage_mult)
+        
+        # Double strike check
+        hits = 1
+        if self.player.has_double_strike:
+            hits = 2
+            print("Двойной удар!")
+
+        ax1, ay1, ax2, ay2 = hb
+        px, py = self.player.draw_pos
+
+        targets = []
+        if self.bosses:
+            for boss in self.bosses:
+                if boss.is_alive() and boss.visible:
+                    bw = getattr(boss.sprite, "width", self.tile_size)
+                    bh = getattr(boss.sprite, "height", self.tile_size)
+                    bx1 = boss.sprite.center_x - bw * 0.5
+                    bx2 = boss.sprite.center_x + bw * 0.5
+                    by1 = boss.sprite.center_y - bh * 0.5
+                    by2 = boss.sprite.center_y + bh * 0.5
+                    if not (ax2 < bx1 or ax1 > bx2 or ay2 < by1 or ay1 > by2):
+                        targets.append(boss)
+
+        try:
+            swing = arcade.load_sound("resources/sounds/swing.wav")
+            arcade.play_sound(swing, volume=self.sound_volume)
+        except Exception:
+            pass
+
+        for i in range(hits):
+            for target in targets:
+                 # Deal damage to target
+                 if hasattr(target, 'take_damage'):
+                     target.take_damage(damage)
+                     if target.health <= 0:
+                         self.handle_boss_death(target)
 
     def on_mouse_press(self, x, y, button, modifiers):
         if self.show_pause_menu:
@@ -2224,12 +2169,15 @@ class GameWindow(arcade.View):
         new_y = self.player.pos[1] + dy
         if 0 <= new_x < self.dungeon_map.map_width and 0 <= new_y < self.dungeon_map.map_height:
             if self.can_move_to(new_x, new_y):
-                if self.difficulty == self.DIFFICULTY_EASY:
-                    if self.player.move(dx, dy):
-                        self._on_player_moved()
-                else:
-                    self.player.set_pos(new_x, new_y)
-                    self.update_visibility()
+                # Easy difficulty movement
+                if self.player.move(dx, dy):
+                    self._on_player_moved()
+
+                # Проверка входа в комнату с выходом для закрытия двери
+                room_id = self.dungeon_map.get_room_id(new_x, new_y)
+                if room_id == self.dungeon_map.exit_room_idx and not self.dungeon_map.exit_door_closed:
+                    self.close_exit_door()
+                    print("Проход закрыт! Сразитесь с боссом!")
 
                 if self.save_point_pos and not self.save_point_used:
                     save_x, save_y = self.save_point_pos
@@ -2275,8 +2223,7 @@ class GameWindow(arcade.View):
         self.explored_tiles.clear()
         self.stop_suspense_music()
         self.exit_music_played = False
-        if self.difficulty == self.DIFFICULTY_HARD:
-            self.hard_save_used = False
+        # Easy difficulty - no hard save system
         self.save_point_used = False
         self.map_payload = None
         self.spawn_corner = None

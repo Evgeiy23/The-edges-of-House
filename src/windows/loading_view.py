@@ -4,6 +4,7 @@ import random
 import threading
 import time
 import traceback
+import math
 
 from project import ProjectSettings
 from game.logic.map.storage import generate_and_store_map
@@ -196,15 +197,31 @@ class LoadingView(arcade.View):
                 # Draw the story UI with the next button
                 self.story_manager.draw()
             elif self.show_start_prompt:
+                # Экран заставки с текстом "Нажмите ENTER чтобы продолжить"
+                # Добавляем эффект мигания текста
+                alpha = int(180 + 75 * abs(math.sin(self.prompt_display_timer * 2.0)))
                 arcade.draw_text(
-                    "Нажмите Enter, чтобы начать",
+                    "Нажмите ENTER чтобы продолжить",
                     self.width // 2,
                     self.height // 2,
-                    arcade.color.LIGHT_GREEN,
-                    22,
+                    (*arcade.color.LIGHT_GREEN[:3], alpha),
+                    28,
                     anchor_x="center",
                     anchor_y="center",
+                    bold=True
                 )
+                # Добавляем подсказку о пропуске истории
+                if hasattr(self, 'story_lines') and len(self.story_lines) > 0:
+                    skip_text = "Нажмите ESCAPE чтобы пропустить предысторию"
+                    arcade.draw_text(
+                        skip_text,
+                        self.width // 2,
+                        self.height // 2 - 50,
+                        (*arcade.color.GRAY[:3], alpha // 2),
+                        18,
+                        anchor_x="center",
+                        anchor_y="center",
+                    )
 
     def on_update(self, delta_time):
         if self.pending_audio_path:
@@ -239,8 +256,31 @@ class LoadingView(arcade.View):
 
     def on_key_press(self, symbol, modifiers):
         if self.status == "done":
+            # Пропуск предыстории по ESCAPE
+            if symbol == arcade.key.ESCAPE:
+                if self.current_story_line or (hasattr(self, 'story_lines') and len(self.story_lines) > 0):
+                    # Останавливаем озвучку
+                    if self.story_audio_player:
+                        try:
+                            arcade.stop_sound(self.story_audio_player)
+                        except:
+                            pass
+                        self.story_audio_player = None
+                    # Очищаем историю
+                    self.current_story_line = None
+                    if hasattr(self, 'story_lines'):
+                        self.story_lines = []
+                    self.show_start_prompt = True
+                    self.story_manager.disable()
+                    return
+            
             # Allow skipping or starting immediately on Enter
             if symbol == arcade.key.ENTER:
+                # Fix: Prevent accidental skipping if pressed immediately after start
+                # Require at least 1.5 seconds of story viewing before skipping is allowed
+                if hasattr(self, 'story_start_time') and time.time() - self.story_start_time < 1.5:
+                    return
+
                 # Set status to generating to show the message
                 self.status = "generating"
                 
@@ -265,8 +305,9 @@ class LoadingView(arcade.View):
                     # Force a draw of the loading screen with "Generating map..." message
                     # But we are in an event handler.
                     
+                    # Always use easy difficulty
                     next_view = GameWindow(
-                        difficulty=self.difficulty,
+                        difficulty=ProjectSettings.Game.DIFFICULTY_EASY,
                         load_save=self.load_save,
                         map_payload=self.map_payload,
                         map_name=self.map_name,
@@ -301,6 +342,7 @@ class LoadingView(arcade.View):
             0) if self.story_lines else None
         self.current_story_audio_index = 0
         self.story_line_timer = self.story_line_duration
+        self.story_start_time = time.time() # Track when story started
         
         if self.current_story_line:
             self.play_story_audio_line(self.current_story_audio_index)
@@ -336,7 +378,19 @@ class LoadingView(arcade.View):
                     sound = arcade.load_sound(audio_path)
                     if sound:
                         self.story_audio_player = arcade.play_sound(sound)
-                        print(f"Воспроизводится аудиофайл: {audio_path}")
+                        
+                        # Sync timer with audio duration
+                        duration = 0
+                        if hasattr(sound, 'get_length'):
+                            duration = sound.get_length()
+                        elif hasattr(sound, 'source') and hasattr(sound.source, 'duration'):
+                            duration = sound.source.duration
+                            
+                        if duration > 0:
+                            self.story_line_duration = duration + 0.5 # Add small buffer
+                            self.story_line_timer = self.story_line_duration
+                            
+                        print(f"Воспроизводится аудиофайл: {audio_path}, длительность: {duration}")
                 except Exception as e:
                     print(f"Ошибка воспроизведения аудио: {e}")
             else:

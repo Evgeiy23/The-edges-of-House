@@ -28,7 +28,7 @@ class Boss:
 
         # Система здоровья
         if self.boss_type == "Caveman Boss":
-            self.max_health = 200  # TODO: Увеличить хп, чтоб было сложнее убить босса
+            self.max_health = 500  # HP босса установлено на 500
         else:
             self.max_health = 30
         self.health = self.max_health
@@ -38,7 +38,7 @@ class Boss:
 
         # Боевая система
         self.attack_range = 1.5  # Дистанция атаки в клетках
-        self.attack_damage = 10  # TODO:Уменьшен урон босса, но в релизе увеличить
+        self.attack_damage = 25  # Урон от атаки босса: 25 единиц
         self.attack_cooldown = 2.0
         self.last_attack_time = 0.0
 

@@ -4,6 +4,7 @@ import arcade.camera as arcade_camera
 import os
 import json
 import pyglet
+import platform
 from project import ProjectSettings
 from utils import get_config_path
 
@@ -33,6 +34,8 @@ class SettingsView(arcade.View):
         self.background_texture = None
         self.background_list = arcade.SpriteList()
         self.background_sprite = None
+        self._bg_sprite = None
+        self._bg_sprite_list = None
 
         self.setup_ui()
         self.load_settings()
@@ -536,6 +539,7 @@ class SettingsView(arcade.View):
             pass
 
         # Рисуем фон напрямую через draw_texture_rectangle (центрированно)
+        # Оптимизация для macOS - используем более стабильный метод отрисовки
         self._ensure_background_sprite()
         if self.background_texture:
             try:
@@ -551,6 +555,32 @@ class SettingsView(arcade.View):
                     scale_x = self.width / texture_width
                     scale_y = self.height / texture_height
                     scale = max(scale_x, scale_y)
+                    
+                    # На macOS используем более стабильный метод отрисовки
+                    is_macos = platform.system() == "Darwin"
+                    if is_macos:
+                        # Используем SpriteList для более стабильной отрисовки на macOS
+                        if not hasattr(self, '_bg_sprite') or self._bg_sprite is None:
+                            self._bg_sprite = arcade.Sprite()
+                            self._bg_sprite.texture = self.background_texture
+                            self._bg_sprite_list = arcade.SpriteList()
+                            self._bg_sprite_list.append(self._bg_sprite)
+                        
+                        self._bg_sprite.center_x = center_x
+                        self._bg_sprite.center_y = center_y
+                        self._bg_sprite.scale = scale
+                        self._bg_sprite_list.draw()
+                    else:
+                        # На Windows используем стандартный метод
+                        scaled_width = texture_width * scale
+                        scaled_height = texture_height * scale
+                        
+                        # Рисуем текстуру в центре экрана
+                        arcade.draw_texture_rectangle(
+                            center_x, center_y,
+                            scaled_width, scaled_height,
+                            self.background_texture
+                        )
 
                     scaled_width = texture_width * scale
                     scaled_height = texture_height * scale

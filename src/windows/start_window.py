@@ -117,6 +117,35 @@ class StartWindow(arcade.View):
     def setup_ui(self):
         settings = ProjectSettings.StartWindow
 
+        # Common button style for consistency and readability
+        # Improved contrast and font size for better readability
+        button_style = {
+            "normal": {
+                "font_size": 20,
+                "font_name": ("Arial", "Roboto", "sans-serif"),
+                "bg_color": arcade.color.DARK_SLATE_BLUE,
+                "font_color": arcade.color.WHITE,
+                "border_color": arcade.color.WHITE,
+                "border_width": 3,
+            },
+            "hover": {
+                "font_size": 20,
+                "font_name": ("Arial", "Roboto", "sans-serif"),
+                "bg_color": arcade.color.SLATE_BLUE,
+                "font_color": arcade.color.WHITE,
+                "border_color": arcade.color.WHITE,
+                "border_width": 3,
+            },
+            "press": {
+                "font_size": 20,
+                "font_name": ("Arial", "Roboto", "sans-serif"),
+                "bg_color": arcade.color.DARK_BLUE,
+                "font_color": arcade.color.WHITE,
+                "border_color": arcade.color.WHITE,
+                "border_width": 3,
+            }
+        }
+
         v_box = arcade.gui.UIBoxLayout(
             vertical=True,
             space_between=settings.BUTTON_SPACING
@@ -127,6 +156,7 @@ class StartWindow(arcade.View):
             width=settings.BUTTON_WIDTH,
             height=settings.BUTTON_HEIGHT
         )
+        start_button.style = button_style
         start_button.on_click = self.on_start_click
         self.start_button = start_button
         v_box.add(start_button)
@@ -136,6 +166,7 @@ class StartWindow(arcade.View):
             width=settings.BUTTON_WIDTH,
             height=settings.BUTTON_HEIGHT
         )
+        network_button.style = button_style
         network_button.on_click = self.on_network_click
         v_box.add(network_button)
 
@@ -144,6 +175,7 @@ class StartWindow(arcade.View):
             width=settings.BUTTON_WIDTH,
             height=settings.BUTTON_HEIGHT
         )
+        settings_button.style = button_style
         settings_button.on_click = self.on_settings_click
         v_box.add(settings_button)
 
@@ -152,6 +184,7 @@ class StartWindow(arcade.View):
             width=settings.BUTTON_WIDTH,
             height=settings.BUTTON_HEIGHT
         )
+        exit_button.style = button_style
         exit_button.on_click = self.on_exit_click
         v_box.add(exit_button)
 

@@ -256,7 +256,8 @@ class LobbyWindow(arcade.View):
         """Переключение в игровое окно"""
         if self.window:
             from windows.game_window import GameWindow
-            game_window = GameWindow()
+            from project import ProjectSettings
+            game_window = GameWindow(difficulty=ProjectSettings.Game.DIFFICULTY_EASY)
             game_window.client = self.client  # Передаем клиент в игровое окно
             # Также передаем информацию о том, что это сетевая игра
             game_window.is_network_game = True

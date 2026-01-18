@@ -2,6 +2,7 @@ import arcade
 import os
 import glob
 import math
+from PIL import Image
 
 
 class Player:
@@ -13,6 +14,7 @@ class Player:
         self.is_moving = False  # Флаг движения
         self.move_progress = 0.0  # Прогресс движения (0-1)
         self.move_speed = 5.0  # Скорость движения в клетках в секунду
+        self.base_move_speed = 5.0
 
         self.facing = 'front'
         self.state = 'idle'
@@ -22,11 +24,15 @@ class Player:
         self.is_attacking = False
         self.attack_timer = 0.0
         self.attack_duration = 0.5
+        self.base_attack_duration = 0.5
+        self.damage_dealt = False # Флаг того, что урон был нанесен в этой атаке
         self.animations = {}
         self.current_animation_frames = []
         self.current_frame_index = 0
         self.animation_timer = 0.0
         self.animation_speed = 0.1
+        self.base_animation_speed = 0.1
+        self.should_strike = False
 
         # Переменные для инерционного движения (сложные режимы)
         self.velocity = [0.0, 0.0]  # Текущая скорость
@@ -36,6 +42,7 @@ class Player:
 
         # Система здоровья
         self.max_health = 100
+        self.base_max_health = 100
         self.health = self.max_health
         self.is_dead = False
         self.hurt_timer = 0.0
@@ -45,6 +52,24 @@ class Player:
         self.health_regen_timer = 0.0
         self.health_regen_interval = 5.0  # Интервал регенерации в секундах
         self.health_regen_amount = 10  # Количество HP для восстановления
+        self.base_health_regen_amount = 10
+        
+        # Эффекты предметов
+        self.has_double_strike = False
+        self.bonus_damage_percent = 0.0
+        self.bonus_damage_flat = 0
+        self.dodge_chance = 0.0
+
+        self.is_blocking = False
+        self.block_damage_reduction = 0.8  # 80% урона блокируется
+        
+        # Характеристики (Stats)
+        self.stats = {
+            "strength": 10,
+            "defense": 5,
+            "agility": 5
+        }
+        self.base_damage = 10 # Базовый урон
 
         self._initialize_sprites()
         self._load_animations()
@@ -68,36 +93,58 @@ class Player:
             'walking': 'Walking',
             'running': 'Running',
             'attacking': 'Attacking',
-            'hurt': 'Hurt',
-            'dying': 'Dying'
+            'hurt': 'Hurt'
         }
 
+        # Load directional animations
         for direction in directions:
             for action_key, action_name in actions.items():
-                if action_key == 'dying':
-                    folder_path = os.path.join(base_path, action_name)
+                if direction == 'Right':
+                    # Use Left animations mirrored
+                    folder_path = os.path.join(base_path, f"Left - {action_name}")
+                    mirror = True
                 else:
-                    folder_path = os.path.join(
-                        base_path, f"{direction} - {action_name}")
+                    folder_path = os.path.join(base_path, f"{direction} - {action_name}")
+                    mirror = False
 
                 if os.path.exists(folder_path):
                     pattern = os.path.join(folder_path, "*.png")
                     files = sorted(glob.glob(pattern))
+                    if action_key == 'attacking' and files:
+                        filtered = []
+                        for fp in files:
+                            name = os.path.basename(fp).lower()
+                            if name.startswith("attacking"):
+                                filtered.append(fp)
+                        if filtered:
+                            files = filtered
 
                     if files:
                         textures = []
                         for file_path in files:
-                            texture = arcade.load_texture(file_path)
+                            if mirror:
+                                try:
+                                    img = Image.open(file_path).convert("RGBA").transpose(Image.FLIP_LEFT_RIGHT)
+                                    texture = arcade.Texture(f"{os.path.basename(file_path)}_mirror", img)
+                                except Exception:
+                                    texture = arcade.load_texture(file_path)
+                            else:
+                                texture = arcade.load_texture(file_path)
                             textures.append(texture)
 
                         key = f"{direction.lower()}_{action_key}"
                         self.animations[key] = textures
 
-                        if self.sprite.scale == 0.7 and textures:  # Обновляем для нового начального масштаба
+                        if self.sprite.scale == 0.7 and textures and direction == 'Front' and action_key == 'idle':
                             texture_width = textures[0].width
-                            # Сохраняем уменьшенный размер
-                            self.sprite.scale = (
-                                self.tile_size / texture_width) * 0.7
+                            self.sprite.scale = (self.tile_size / texture_width) * 0.7
+
+        # Load Dying animation separately
+        dying_path = os.path.join(base_path, "Dying")
+        if os.path.exists(dying_path):
+            files = sorted(glob.glob(os.path.join(dying_path, "*.png")))
+            if files:
+                self.animations['dying'] = [arcade.load_texture(f) for f in files]
 
     def _get_animation_key(self):
         if self.state == 'dying':
@@ -128,9 +175,23 @@ class Player:
     def update_animation(self, delta_time):
         if self.is_attacking:
             self.attack_timer += delta_time
+            
+            # Trigger strike at 40% of animation
+            if not self.damage_dealt and self.attack_timer >= self.attack_duration * 0.4:
+                self.should_strike = True
+                self.damage_dealt = True
+
             if self.attack_timer >= self.attack_duration:
                 self.is_attacking = False
                 self.attack_timer = 0.0
+                self.state = 'idle'
+                self.animation_speed = self.base_animation_speed
+                self._update_animation()
+        
+        # Обработка состояния hurt
+        if self.state == 'hurt':
+            self.hurt_timer -= delta_time
+            if self.hurt_timer <= 0:
                 self.state = 'idle'
                 self._update_animation()
 
@@ -287,8 +348,65 @@ class Player:
         if not self.is_attacking:
             self.is_attacking = True
             self.attack_timer = 0.0
+            self.damage_dealt = False
+            self.should_strike = False
             self.state = 'attacking'
+            
+            # Adjust animation speed
+            anim_key = self._get_animation_key()
+            if anim_key in self.animations:
+                frames = self.animations[anim_key]
+                if frames:
+                    target = self.attack_duration / len(frames)
+                    min_interval = 1.0 / 30.0
+                    max_interval = 1.0 / 24.0
+                    if target < min_interval:
+                        self.animation_speed = min_interval
+                    elif target > max_interval:
+                        self.animation_speed = max_interval
+                    else:
+                        self.animation_speed = target
+            
             self._update_animation()
+
+    def get_attack_hitbox(self):
+        if not self.is_attacking or not self.current_animation_frames:
+            return None
+        px, py = self.draw_pos
+        frame_count = len(self.current_animation_frames)
+        idx = self.current_frame_index
+        reach = self.tile_size * 1.2
+        thickness = self.tile_size * 0.6
+        base_offset = self.tile_size * 0.3
+        t = 0.0
+        if frame_count > 0:
+            t = max(0.0, min(1.0, idx / frame_count))
+        offset = base_offset + reach * (0.4 + 0.6 * t)
+        if self.facing == 'right':
+            x1 = px + base_offset
+            x2 = px + offset
+            y1 = py - thickness * 0.5
+            y2 = py + thickness * 0.5
+            return (x1, y1, x2, y2)
+        if self.facing == 'left':
+            x1 = px - offset
+            x2 = px - base_offset
+            y1 = py - thickness * 0.5
+            y2 = py + thickness * 0.5
+            return (x1, y1, x2, y2)
+        if self.facing == 'back':
+            y1 = py + base_offset
+            y2 = py + offset
+            x1 = px - thickness * 0.5
+            x2 = px + thickness * 0.5
+            return (x1, y1, x2, y2)
+        if self.facing == 'front':
+            y1 = py - offset
+            y2 = py - base_offset
+            x1 = px - thickness * 0.5
+            x2 = px + thickness * 0.5
+            return (x1, y1, x2, y2)
+        return None
 
     def get_pixel_position(self):
         return (self.draw_pos[0], self.draw_pos[1])
@@ -308,9 +426,25 @@ class Player:
         if self.is_dead:
             return
 
+        # Учитываем блок
+        if self.is_blocking:
+            damage = int(damage * (1.0 - self.block_damage_reduction))
+            print("Удар заблокирован!")
+
+        # Учитываем защиту
+        damage = max(1, damage - self.stats["defense"] // 2)
+
         old_health = self.health
         self.health = max(0, self.health - damage)
         self.hurt_timer = self.hurt_duration
+
+        # Смена состояния на hurt, если не атакуем и не умираем
+        if not self.is_attacking and not self.is_dead:
+             self.state = 'hurt'
+             self._update_animation()
+             # Сбрасываем таймер анимации, чтобы начать с начала
+             self.animation_timer = 0.0
+             self.current_frame_index = 0
 
         print(
             f"Игрок получил {damage} урона! HP: {old_health} -> {self.health}/{self.max_health}")
@@ -321,6 +455,19 @@ class Player:
             self.state = 'dying'
             self._update_animation()
             print("Игрок умер!")
+
+    def start_blocking(self):
+        if not self.is_attacking and not self.is_dead:
+            self.is_blocking = True
+            # Визуальный эффект блока (например, замедление или изменение цвета)
+            self.move_speed *= 0.5
+            self.sprite.color = (200, 200, 255) # Подсветка синим
+
+    def stop_blocking(self):
+        if self.is_blocking:
+            self.is_blocking = False
+            self.move_speed *= 2.0
+            self.sprite.color = (255, 255, 255) # Возврат цвета
 
     def heal(self, amount):
         """Восстанавливает здоровье"""

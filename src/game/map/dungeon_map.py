@@ -171,3 +171,20 @@ class DungeonMap:
 
     def is_corridor(self, x, y):
         return (x, y) in self.corridor_tiles
+
+    def close_exit_door(self):
+        """Закрывает проход в комнату с выходом"""
+        if self.exit_door_closed or not self.exit_door_positions:
+            return
+
+        for x, y in self.exit_door_positions:
+            if 0 <= x < self.map_width and 0 <= y < self.map_height:
+                # Меняем тайл пола на стену (1)
+                self.map_data[y][x] = 1
+                
+                # Если используем группы коллизий, нужно их обновить
+                # Но пока просто пересоздадим
+        
+        self.exit_door_closed = True
+        self.create_collision_groups()  # Обновляем коллизии
+
