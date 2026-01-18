@@ -17,10 +17,14 @@ from game.entities.player import Player
 from game.entities.boss import Boss
 from game.map.dungeon_map import DungeonMap
 from game.items.effects import ITEM_EFFECTS
+from windows.game_window_rendering import GameWindowRendering
+from windows.game_window_inventory import GameWindowInventory
+from windows.game_window_story import GameWindowStory
+from windows.game_window_music import GameWindowMusic
 
 
-
-class GameWindow(arcade.View):
+class GameWindow(arcade.View, GameWindowRendering, GameWindowInventory, 
+                 GameWindowStory, GameWindowMusic):
     @staticmethod
     def compute_map_dimensions(level, game_cfg):
         base_width = game_cfg.SCREEN_WIDTH // game_cfg.TILE_SIZE

@@ -7,9 +7,12 @@ import pyglet
 from project import ProjectSettings
 from utils import get_config_path
 from game.logic.music import find_music_file as shared_find_music
+from windows.start_window_music import StartWindowMusic
+from windows.start_window_background import StartWindowBackground
+from windows.start_window_settings import StartWindowSettings
 
 
-class StartWindow(arcade.View):
+class StartWindow(arcade.View, StartWindowMusic, StartWindowBackground, StartWindowSettings):
     def __init__(self):
         super().__init__()
 
