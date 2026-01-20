@@ -3,6 +3,7 @@ import os
 import glob
 import math
 import random
+from game.logic.music import play_once, find_music_file
 
 
 class Boss:
@@ -26,15 +27,19 @@ class Boss:
         self.animation_timer = 0.0
         self.animation_speed = 0.15
 
-        # Система здоровья
         if self.boss_type == "Caveman Boss":
-            self.max_health = 500  # HP босса установлено на 500
+            self.max_health = 500
         else:
             self.max_health = 30
         self.health = self.max_health
         self.is_dead = False
         self.hurt_timer = 0.0
         self.hurt_duration = 0.3
+        self.target_max_health = 1000
+        self.health_increase_speed = 200.0
+        self.powerup_active = False
+        self.powerup_timer = 0.0
+        self.sound_volume = 1.0
 
         # Боевая система
         self.attack_range = 1.5  # Дистанция атаки в клетках
@@ -200,6 +205,11 @@ class Boss:
             self.sprite.center_x = self.draw_pos[0]
             self.sprite.center_y = self.draw_pos[1]
 
+    def draw(self):
+        if self.sprite_list:
+            self.sprite_list.draw()
+            self.sprite.center_y = self.draw_pos[1]
+
             # Обновляем grid pos
             self.pos[0] = int(
                 round((self.draw_pos[0] - self.tile_size // 2) / self.tile_size))
@@ -247,6 +257,25 @@ class Boss:
 
         # Обновление времени последней атаки
         self.last_attack_time += delta_time
+        if self.powerup_active and self.max_health < self.target_max_health:
+            inc = self.health_increase_speed * delta_time
+            new_max = min(self.target_max_health, self.max_health + inc)
+            ratio = self.health / max(1.0, self.max_health)
+            self.max_health = new_max
+            self.health = min(self.max_health, max(0.0, ratio * self.max_health))
+            self.powerup_timer += delta_time
+            phase = abs(math.sin(self.powerup_timer * 6.0))
+            tint = int(200 + 55 * phase)
+            try:
+                self.sprite.color = (255, tint, 150)
+            except Exception:
+                pass
+            if self.max_health >= self.target_max_health:
+                self.powerup_active = False
+                try:
+                    self.sprite.color = (255, 255, 255)
+                except Exception:
+                    pass
 
         # Поворот к игроку (координаты игрока ожидаются в пикселях)
         if player_pos and not self.is_attacking:
@@ -301,9 +330,13 @@ class Boss:
             # Полоска здоровья
             health_percent = self.health / self.max_health
             health_width = bar_width * health_percent
-            health_color = arcade.color.RED if health_percent < 0.3 else (
-                arcade.color.YELLOW if health_percent < 0.6 else arcade.color.GREEN
-            )
+            if self.powerup_active:
+                pulse = abs(math.sin(self.powerup_timer * 6.0))
+                health_color = (int(200 + 55 * pulse), 200, 60)
+            else:
+                health_color = arcade.color.RED if health_percent < 0.3 else (
+                    arcade.color.YELLOW if health_percent < 0.6 else arcade.color.GREEN
+                )
             arcade.draw_lrbt_rectangle_filled(
                 bar_x, bar_x + health_width, bar_y, bar_y + bar_height,
                 health_color
@@ -314,6 +347,11 @@ class Boss:
                 bar_x, bar_x + bar_width, bar_y, bar_y + bar_height,
                 arcade.color.WHITE, 1
             )
+            if self.powerup_active:
+                arcade.draw_lrbt_rectangle_outline(
+                    bar_x - 2, bar_x + bar_width + 2, bar_y - 2, bar_y + bar_height + 2,
+                    arcade.color.GOLD, 1
+                )
 
     def take_damage(self, damage):
         """Наносит урон боссу"""
@@ -363,6 +401,20 @@ class Boss:
                 f"Босс {self.boss_type} начинает атаку на игрока! Расстояние: {distance:.2f}, радиус: {attack_range_pixels}")
             return True  # Возвращаем True только при начале новой атаки
         return False
+    
+    def start_powerup(self, volume=1.0):
+        if self.is_dead:
+            return
+        self.sound_volume = volume
+        if not self.powerup_active and self.max_health < self.target_max_health:
+            self.powerup_active = True
+            self.powerup_timer = 0.0
+            try:
+                path = find_music_file("boss_powerup.wav")
+                if path:
+                    play_once(path, volume=self.sound_volume)
+            except Exception:
+                pass
 
     def get_grid_position(self):
         """Возвращает позицию в клетках"""

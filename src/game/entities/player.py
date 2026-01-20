@@ -3,6 +3,7 @@ import os
 import glob
 import math
 from PIL import Image
+from game.logic.music import play_once, find_music_file
 
 
 class Player:
@@ -47,6 +48,13 @@ class Player:
         self.is_dead = False
         self.hurt_timer = 0.0
         self.hurt_duration = 0.3
+        self.display_health = float(self.health)
+        self.damage_effect_timer = 0.0
+        self.damage_effect_duration = 0.3
+        self.health_tween_speed = 25.0
+        self.damage_flash_frequency = 12.0
+        self.damage_flash_min_alpha = 140
+        self.sound_volume = 1.0
 
         # Система регенерации здоровья
         self.health_regen_timer = 0.0
@@ -100,9 +108,13 @@ class Player:
         for direction in directions:
             for action_key, action_name in actions.items():
                 if direction == 'Right':
-                    # Use Left animations mirrored
-                    folder_path = os.path.join(base_path, f"Left - {action_name}")
-                    mirror = True
+                    # Use dedicated Right - Walking resources for walking; mirror others from Left
+                    if action_key == 'walking':
+                        folder_path = os.path.join(base_path, "Right - Walking")
+                        mirror = False
+                    else:
+                        folder_path = os.path.join(base_path, f"Left - {action_name}")
+                        mirror = True
                 else:
                     folder_path = os.path.join(base_path, f"{direction} - {action_name}")
                     mirror = False
@@ -187,24 +199,26 @@ class Player:
                 self.state = 'idle'
                 self.animation_speed = self.base_animation_speed
                 self._update_animation()
-        
-        # Обработка состояния hurt
-        if self.state == 'hurt':
-            self.hurt_timer -= delta_time
-            if self.hurt_timer <= 0:
-                self.state = 'idle'
-                self._update_animation()
 
-        if not self.current_animation_frames:
-            return
+        if self.damage_effect_timer > 0.0:
+            self.damage_effect_timer = max(0.0, self.damage_effect_timer - delta_time)
+            phase = abs(math.sin(self.damage_effect_timer * self.damage_flash_frequency))
+            alpha = int(self.damage_flash_min_alpha + (255 - self.damage_flash_min_alpha) * phase)
+            self.sprite.alpha = alpha
+        else:
+            self.sprite.alpha = 255
 
-        self.animation_timer += delta_time
+        if self.display_health != float(self.health):
+            diff = self.health - self.display_health
+            step = self.health_tween_speed * delta_time
+            if abs(diff) <= step:
+                self.display_health = float(self.health)
+            else:
+                self.display_health += step if diff > 0 else -step
 
-        if self.animation_timer >= self.animation_speed:
-            self.animation_timer = 0.0
-            self.current_frame_index = (
-                self.current_frame_index + 1) % len(self.current_animation_frames)
-            self.sprite.texture = self.current_animation_frames[self.current_frame_index]
+    def draw(self):
+        if self.sprite_list:
+            self.sprite_list.draw()
 
     def update_movement(self, delta_time):
         """Обновляет плавное движение игрока"""
@@ -429,14 +443,19 @@ class Player:
         # Учитываем блок
         if self.is_blocking:
             damage = int(damage * (1.0 - self.block_damage_reduction))
-            print("Удар заблокирован!")
 
         # Учитываем защиту
         damage = max(1, damage - self.stats["defense"] // 2)
 
-        old_health = self.health
         self.health = max(0, self.health - damage)
         self.hurt_timer = self.hurt_duration
+        self.damage_effect_timer = self.damage_effect_duration
+        try:
+            path = find_music_file("player_hp_down.wav")
+            if path:
+                play_once(path, volume=self.sound_volume)
+        except Exception:
+            pass
 
         # Смена состояния на hurt, если не атакуем и не умираем
         if not self.is_attacking and not self.is_dead:
@@ -446,15 +465,11 @@ class Player:
              self.animation_timer = 0.0
              self.current_frame_index = 0
 
-        print(
-            f"Игрок получил {damage} урона! HP: {old_health} -> {self.health}/{self.max_health}")
-
         if self.health <= 0:
             self.health = 0
             self.is_dead = True
             self.state = 'dying'
             self._update_animation()
-            print("Игрок умер!")
 
     def start_blocking(self):
         if not self.is_attacking and not self.is_dead:

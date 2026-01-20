@@ -70,6 +70,11 @@ class StartWindow(arcade.View, StartWindowMusic, StartWindowBackground, StartWin
         self.camera = None
         self.button_fx = {}
         self.start_button = None
+        
+        self.settings_title_text_object = None
+        self.title_text_object = None
+        self.title_shadow_text_object = None
+        self.button_text_objects = {}
 
         self.setup_ui()
         self.load_settings()
@@ -164,15 +169,6 @@ class StartWindow(arcade.View, StartWindowMusic, StartWindowBackground, StartWin
         self.start_button = start_button
         v_box.add(start_button)
 
-        network_button = arcade.gui.UIFlatButton(
-            text="Играть по сети",
-            width=settings.BUTTON_WIDTH,
-            height=settings.BUTTON_HEIGHT
-        )
-        network_button.style = button_style
-        network_button.on_click = self.on_network_click
-        v_box.add(network_button)
-
         settings_button = arcade.gui.UIFlatButton(
             text=settings.BUTTON_SETTINGS_TEXT,
             width=settings.BUTTON_WIDTH,
@@ -191,11 +187,9 @@ class StartWindow(arcade.View, StartWindowMusic, StartWindowBackground, StartWin
         exit_button.on_click = self.on_exit_click
         v_box.add(exit_button)
 
-        self.buttons = [start_button, network_button,
-                        settings_button, exit_button]
+        self.buttons = [start_button, settings_button, exit_button]
         self.button_texts = [
             settings.BUTTON_START_TEXT,
-            "Играть по сети",
             settings.BUTTON_SETTINGS_TEXT,
             settings.BUTTON_EXIT_TEXT
         ]
@@ -217,17 +211,7 @@ class StartWindow(arcade.View, StartWindowMusic, StartWindowBackground, StartWin
         self.transition_alpha = 0
         self.pause_main_music()
 
-    def on_network_click(self, event):
-        if self.window:
-            import arcade
-            arcade.schedule(lambda dt: self._switch_to_network_window(), 0)
-
-    def _switch_to_network_window(self):
-        """Switch to network window on the main thread to avoid OpenGL context issues"""
-        if self.window:
-            from windows.network_window import NetworkWindow
-            network_window = NetworkWindow()
-            self.window.show_view(network_window)
+    pass
 
     def on_settings_click(self, event):
         self.show_settings = True
@@ -297,9 +281,15 @@ class StartWindow(arcade.View, StartWindowMusic, StartWindowBackground, StartWin
                 left, right, bottom, top, arcade.color.WHITE, border_width=2)
 
             title = ProjectSettings.StartWindow.SETTINGS_TITLE_TEXT
-            arcade.draw_text(title, cx, top - 48,
-                             arcade.color.WHITE, ProjectSettings.StartWindow.TITLE_FONT_SIZE // 2,
-                             anchor_x="center", anchor_y="center", bold=True)
+            if not self.settings_title_text_object:
+                self.settings_title_text_object = arcade.Text(
+                    title, cx, top - 48,
+                    arcade.color.WHITE, ProjectSettings.StartWindow.TITLE_FONT_SIZE // 2,
+                    anchor_x="center", anchor_y="center", bold=True)
+            else:
+                self.settings_title_text_object.x = cx
+                self.settings_title_text_object.y = top - 48
+            self.settings_title_text_object.draw()
 
             try:
                 self.manager.draw()
@@ -323,47 +313,62 @@ class StartWindow(arcade.View, StartWindowMusic, StartWindowBackground, StartWin
                 pass
 
             shadow_offset = 3
-            arcade.draw_text(
-                settings.TITLE_TEXT,
-                self.title_x + shadow_offset,
-                self.title_y - shadow_offset,
-                settings.TITLE_SHADOW_COLOR,
-                settings.TITLE_FONT_SIZE,
-                width=settings.TITLE_WIDTH,
-                align="center",
-                bold=settings.TITLE_BOLD,
-                anchor_x="center",
-                anchor_y="center"
-            )
+            if not self.title_shadow_text_object:
+                self.title_shadow_text_object = arcade.Text(
+                    settings.TITLE_TEXT,
+                    self.title_x + shadow_offset,
+                    self.title_y - shadow_offset,
+                    settings.TITLE_SHADOW_COLOR,
+                    settings.TITLE_FONT_SIZE,
+                    width=settings.TITLE_WIDTH,
+                    align="center",
+                    bold=settings.TITLE_BOLD,
+                    anchor_x="center",
+                    anchor_y="center"
+                )
+            else:
+                self.title_shadow_text_object.x = self.title_x + shadow_offset
+                self.title_shadow_text_object.y = self.title_y - shadow_offset
+            self.title_shadow_text_object.draw()
 
-            arcade.draw_text(
-                settings.TITLE_TEXT,
-                self.title_x,
-                self.title_y,
-                settings.TITLE_COLOR,
-                settings.TITLE_FONT_SIZE,
-                width=settings.TITLE_WIDTH,
-                align="center",
-                bold=settings.TITLE_BOLD,
-                anchor_x="center",
-                anchor_y="center"
-            )
+            if not self.title_text_object:
+                self.title_text_object = arcade.Text(
+                    settings.TITLE_TEXT,
+                    self.title_x,
+                    self.title_y,
+                    settings.TITLE_COLOR,
+                    settings.TITLE_FONT_SIZE,
+                    width=settings.TITLE_WIDTH,
+                    align="center",
+                    bold=settings.TITLE_BOLD,
+                    anchor_x="center",
+                    anchor_y="center"
+                )
+            else:
+                self.title_text_object.x = self.title_x
+                self.title_text_object.y = self.title_y
+            self.title_text_object.draw()
 
         for button, text in zip(self.buttons, self.button_texts):
             if hasattr(button, 'rect'):
                 if getattr(button, 'text', '') == '':
                     button_x = button.rect.center_x
                     button_y = button.rect.center_y
-                    arcade.draw_text(
-                        text,
-                        button_x,
-                        button_y,
-                        arcade.color.WHITE,
-                        settings.BUTTON_FONT_SIZE,
-                        anchor_x="center",
-                        anchor_y="center",
-                        bold=True
-                    )
+                    if button not in self.button_text_objects or self.button_text_objects[button].text != text:
+                        self.button_text_objects[button] = arcade.Text(
+                            text,
+                            button_x,
+                            button_y,
+                            arcade.color.WHITE,
+                            settings.BUTTON_FONT_SIZE,
+                            anchor_x="center",
+                            anchor_y="center",
+                            bold=True
+                        )
+                    else:
+                        self.button_text_objects[button].x = button_x
+                        self.button_text_objects[button].y = button_y
+                    self.button_text_objects[button].draw()
                 if not self.show_settings and button in self.button_fx:
                     alpha = int(
                         max(0, min(255, 255 * (self.button_fx[button] / 0.2))))

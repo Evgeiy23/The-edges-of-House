@@ -1,14 +1,19 @@
 import arcade
 import os
+import pyglet
 import random
 import threading
 import time
 import traceback
 import math
+import json
+import platform
+import subprocess
 
 from project import ProjectSettings
 from game.logic.map.storage import generate_and_store_map
 from windows.game_window import GameWindow
+from utils import get_config_path
 
 
 class LoadingView(arcade.View):
@@ -20,7 +25,7 @@ class LoadingView(arcade.View):
 
         self.status = "pending"
         self.error = None
-        self.progress_text = "Генерация карты..."
+        self.progress_text = "Идет генерация карты"
 
         self.map_payload = None
         self.spawn_corner = None
@@ -28,6 +33,7 @@ class LoadingView(arcade.View):
         self._worker_thread = None
         self._switch_scheduled = False
         self._started_at = time.time()
+        self._switch_when_done = False
 
         # Initialize story UI manager
         self.story_manager = arcade.gui.UIManager()
@@ -46,6 +52,26 @@ class LoadingView(arcade.View):
         # Новые поля для аудиофайлов
         self.story_audio_files = []
         self.current_story_audio_index = 0
+        self.afplay_process = None
+        
+        self.sound_volume = 1.0
+        self.load_settings()
+        self._spinner_angle = 0.0
+        self._spinner_speed = 180.0
+        self._overlay_start_time = time.time()
+        self._enter_loading_active = False
+        self._enter_loading_timer = 0.0
+        self._enter_loading_duration = 3.0
+
+    def load_settings(self):
+        try:
+            config_path = get_config_path()
+            if os.path.exists(config_path):
+                with open(config_path, 'r') as f:
+                    config = json.load(f)
+                    self.sound_volume = config.get("sound_volume", 1.0)
+        except Exception:
+            pass
 
     def setup_story_ui(self):
         """Setup UI for story display with 'Next' button"""
@@ -147,7 +173,7 @@ class LoadingView(arcade.View):
 
             self.spawn_corner = random.choice(
                 ["bottom_left", "bottom_right"])
-            self.progress_text = "Генерация случайной карты..."
+            self.progress_text = "Идет генерация карты"
 
             self.map_payload = generate_and_store_map(
                 map_width, map_height, game_cfg, self.spawn_corner, map_name=self.map_name)
@@ -160,6 +186,20 @@ class LoadingView(arcade.View):
     def on_draw(self):
         self.clear()
 
+        if self._enter_loading_active:
+            w, h = self.width, self.height
+            arcade.draw_lrbt_rectangle_filled(0, w, 0, h, (0, 0, 0, 180))
+            text = "Генерация карты..."
+            r = int(min(w, h) * 0.06)
+            text_y = h // 2 + int(r * 0.8)
+            arcade.draw_text(text, w // 2, text_y, arcade.color.WHITE, 28, anchor_x="center", anchor_y="center", bold=True)
+            r = int(min(w, h) * 0.06)
+            cx, cy = w // 2, h // 2 - r * 2
+            arcade.draw_arc_outline(cx, cy, r * 2, r * 2, arcade.color.DARK_GRAY, 0, 360, 6)
+            sa = self._spinner_angle
+            arcade.draw_arc_outline(cx, cy, r * 2, r * 2, arcade.color.LIGHT_BLUE, sa, sa + 120, 8)
+            return
+
         if self.error:
             msg = f"Ошибка генерации: {self.error}"
             arcade.draw_text(msg, self.width // 2, self.height // 2, arcade.color.WHITE, 24,
@@ -168,10 +208,17 @@ class LoadingView(arcade.View):
             return
 
         if self.status == "pending" or self.status == "generating":
-            text = "Генерация карты..." if self.status == "generating" else self.progress_text
-            arcade.draw_text(text, self.width // 2, self.height // 2,
-                             arcade.color.WHITE, 24, anchor_x="center", anchor_y="center",
-                             align="center", width=int(self.width * 0.8), multiline=True)
+            w, h = self.width, self.height
+            arcade.draw_lrbt_rectangle_filled(0, w, 0, h, (0, 0, 0, 180))
+            text = "Генерация карты..."
+            r = int(min(w, h) * 0.06)
+            text_y = h // 2 + int(r * 0.8)
+            arcade.draw_text(text, w // 2, text_y, arcade.color.WHITE, 28, anchor_x="center", anchor_y="center", bold=True)
+            r = int(min(w, h) * 0.06)
+            cx, cy = w // 2, h // 2 - r * 2
+            arcade.draw_arc_outline(cx, cy, r * 2, r * 2, arcade.color.DARK_GRAY, 0, 360, 6)
+            sa = self._spinner_angle
+            arcade.draw_arc_outline(cx, cy, r * 2, r * 2, arcade.color.LIGHT_BLUE, sa, sa + 120, 8)
             return
 
         if self.status == "done":
@@ -196,6 +243,19 @@ class LoadingView(arcade.View):
                 )
                 # Draw the story UI with the next button
                 self.story_manager.draw()
+                # Corner ESC notification (top-right)
+                notice = "Нажмите ESC, чтобы пропустить предысторию"
+                margin = 20
+                arcade.draw_text(
+                    notice,
+                    self.width - margin,
+                    self.height - margin,
+                    arcade.color.LIGHT_GRAY,
+                    16,
+                    anchor_x="right",
+                    anchor_y="top",
+                    align="right",
+                )
             elif self.show_start_prompt:
                 # Экран заставки с текстом "Нажмите ENTER чтобы продолжить"
                 # Добавляем эффект мигания текста
@@ -224,20 +284,41 @@ class LoadingView(arcade.View):
                     )
 
     def on_update(self, delta_time):
+        if self.story_audio_player and hasattr(self.story_audio_player, 'time'):
+            # Debug: print playback time occasionally
+            if int(time.time() * 10) % 20 == 0:
+                 pass # print(f"Playback time: {self.story_audio_player.time}")
+
         if self.pending_audio_path:
             try:
                 if os.path.exists(self.pending_audio_path):
                     if self.story_audio_player:
                         try:
+                            if hasattr(self.story_audio_player, "pause"):
+                                self.story_audio_player.pause()
                             arcade.stop_sound(self.story_audio_player)
                         except:
                             pass
                     sound = arcade.load_sound(self.pending_audio_path)
                     if sound:
-                        self.story_audio_player = arcade.play_sound(sound)
+                        self.story_audio_player = arcade.play_sound(sound, volume=self.sound_volume)
                     self.pending_audio_path = None
             except Exception:
                 self.pending_audio_path = None
+
+        # Переход в игру только после завершения генерации
+        if self._switch_when_done and self.status == "done" and self.window:
+            self._switch_when_done = False
+            self._switch_scheduled = False
+            next_view = GameWindow(
+                difficulty=ProjectSettings.Game.DIFFICULTY_EASY,
+                load_save=self.load_save,
+                map_payload=self.map_payload,
+                map_name=self.map_name,
+                spawn_corner=self.spawn_corner,
+                level_override=1
+            )
+            self.window.show_view(next_view)
 
         if self.status == "done":
             if not self.story_initialized:
@@ -253,68 +334,78 @@ class LoadingView(arcade.View):
 
         if self.story_manager:
             self.story_manager.on_update(delta_time)
+        if self.status in ("pending", "generating") or self._enter_loading_active:
+            self._spinner_angle = (self._spinner_angle + self._spinner_speed * delta_time) % 360.0
+        if self._enter_loading_active and self.window:
+            self._enter_loading_timer += delta_time
+            if self._enter_loading_timer >= self._enter_loading_duration:
+                self._enter_loading_active = False
+                self._enter_loading_timer = 0.0
+                next_view = GameWindow(
+                    difficulty=ProjectSettings.Game.DIFFICULTY_EASY,
+                    load_save=self.load_save,
+                    map_payload=self.map_payload,
+                    map_name=self.map_name,
+                    spawn_corner=self.spawn_corner,
+                    level_override=1
+                )
+                self.window.show_view(next_view)
 
     def on_key_press(self, symbol, modifiers):
-        if self.status == "done":
-            # Пропуск предыстории по ESCAPE
-            if symbol == arcade.key.ESCAPE:
-                if self.current_story_line or (hasattr(self, 'story_lines') and len(self.story_lines) > 0):
-                    # Останавливаем озвучку
-                    if self.story_audio_player:
-                        try:
-                            arcade.stop_sound(self.story_audio_player)
-                        except:
-                            pass
-                        self.story_audio_player = None
-                    # Очищаем историю
-                    self.current_story_line = None
-                    if hasattr(self, 'story_lines'):
-                        self.story_lines = []
-                    self.show_start_prompt = True
-                    self.story_manager.disable()
-                    return
-            
-            # Allow skipping or starting immediately on Enter
-            if symbol == arcade.key.ENTER:
-                # Fix: Prevent accidental skipping if pressed immediately after start
-                # Require at least 1.5 seconds of story viewing before skipping is allowed
-                if hasattr(self, 'story_start_time') and time.time() - self.story_start_time < 1.5:
-                    return
-
-                # Set status to generating to show the message
-                self.status = "generating"
-                
-                # Останавливаем озвучку и переходим в игру
+        if symbol == arcade.key.ESCAPE and self.status == "done":
+            if self.current_story_line or (hasattr(self, 'story_lines') and len(self.story_lines) > 0):
                 if self.story_audio_player:
                     try:
+                        if hasattr(self.story_audio_player, "pause"):
+                            self.story_audio_player.pause()
                         arcade.stop_sound(self.story_audio_player)
                     except:
                         pass
                     self.story_audio_player = None
+                if self.afplay_process:
+                    try:
+                        self.afplay_process.terminate()
+                        self.afplay_process = None
+                    except:
+                        pass
+                self.current_story_line = None
+                if hasattr(self, 'story_lines'):
+                    self.story_lines = []
+                self.show_start_prompt = True
+                self.story_manager.disable()
+                return
+        if symbol == arcade.key.ENTER:
+            if self.status == "done" and self.window:
+                if hasattr(self, 'story_start_time') and time.time() - self.story_start_time < 1.5:
+                    return
+                self.story_manager.disable()
                 self.current_story_line = None
                 self.show_start_prompt = False
-                # Disable story UI when transitioning to game
-                self.story_manager.disable()
-                
-                if not self._switch_scheduled and self.window:
-                    self._switch_scheduled = True
-                    # Use call_soon to allow drawing "Generating map..." for at least one frame
-                    # But since we are switching view immediately, we might not see it unless we wait
-                    # However, GameWindow init might take time.
-                    
-                    # Force a draw of the loading screen with "Generating map..." message
-                    # But we are in an event handler.
-                    
-                    # Always use easy difficulty
-                    next_view = GameWindow(
-                        difficulty=ProjectSettings.Game.DIFFICULTY_EASY,
-                        load_save=self.load_save,
-                        map_payload=self.map_payload,
-                        map_name=self.map_name,
-                        spawn_corner=self.spawn_corner,
-                        level_override=1
-                    )
-                    self.window.show_view(next_view)
+                self._enter_loading_active = True
+                self._enter_loading_timer = 0.0
+                return
+            self.status = "generating"
+            self.progress_text = "Идет генерация карты"
+            if self.story_audio_player:
+                try:
+                    if hasattr(self.story_audio_player, "pause"):
+                        self.story_audio_player.pause()
+                    arcade.stop_sound(self.story_audio_player)
+                except:
+                    pass
+                self.story_audio_player = None
+            if self.afplay_process:
+                try:
+                    self.afplay_process.terminate()
+                    self.afplay_process = None
+                except:
+                    pass
+            self.current_story_line = None
+            self.show_start_prompt = False
+            self.story_manager.disable()
+            if not self._switch_scheduled:
+                self._switch_scheduled = True
+                self._switch_when_done = True
 
     def _init_story(self):
         text = (
@@ -330,13 +421,15 @@ class LoadingView(arcade.View):
         self.story_lines = [line.strip()
                             for line in text.split("\n") if line.strip()]
         
-        # Сопоставляем линии с аудиофайлами
+        # Загружаем все аудиофайлы из папки story_audio, отсортированные по имени
         root_dir = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
-        self.story_audio_files = [
-            os.path.join(root_dir, "music", "story_audio", "store1.mp3"),
-            os.path.join(root_dir, "music", "story_audio", "store2.mp3"),
-            os.path.join(root_dir, "music", "story_audio", "store3.mp3")
-        ]
+        story_dir = os.path.join(root_dir, "music", "story_audio")
+        if os.path.isdir(story_dir):
+            files = [os.path.join(story_dir, f) for f in os.listdir(story_dir) if f.lower().endswith(".mp3")]
+            files.sort()
+            self.story_audio_files = files
+        else:
+            self.story_audio_files = []
         
         self.current_story_line = self.story_lines.pop(
             0) if self.story_lines else None
@@ -371,58 +464,70 @@ class LoadingView(arcade.View):
                     # Останавливаем предыдущее аудио
                     if self.story_audio_player:
                         try:
+                            if hasattr(self.story_audio_player, "pause"):
+                                self.story_audio_player.pause()
                             arcade.stop_sound(self.story_audio_player)
                         except:
                             pass
+                        self.story_audio_player = None
+
+                    # Останавливаем afplay если запущен
+                    if self.afplay_process:
+                        try:
+                            self.afplay_process.terminate()
+                            self.afplay_process = None
+                        except:
+                            pass
                     
-                    sound = arcade.load_sound(audio_path)
-                    if sound:
-                        self.story_audio_player = arcade.play_sound(sound)
+                    duration = 0
+                    is_mp3 = audio_path.lower().endswith('.mp3')
+                    
+                    # 1. Сначала пробуем Pyglet (для корректного определения длительности)
+                    try:
+                        # Используем streaming=False как в успешном тесте
+                        media = pyglet.media.load(audio_path, streaming=False)
+                        if hasattr(media, 'duration'):
+                            duration = media.duration
+                            
+                        # Если мы на macOS и громкость > 0, используем afplay для гарантии звука
+                        if platform.system() == 'Darwin' and self.sound_volume > 0:
+                            print(f"Используем afplay (macOS) для: {audio_path}")
+                            # afplay поддерживает опцию -v для громкости (0-255? Нет, 0-1 или логарифмически)
+                            # man afplay: -v VOLUME (high quality linear volume, 1 is normal)
+                            vol_str = str(max(0.0, min(1.0, self.sound_volume)))
+                            self.afplay_process = subprocess.Popen(['afplay', '-v', vol_str, audio_path])
+                            # Не используем self.story_audio_player
+                        else:
+                            # Для других ОС или если afplay не нужен
+                            self.story_audio_player = media.play()
+                            try:
+                                self.story_audio_player.volume = self.sound_volume
+                            except:
+                                pass
+                                
+                    except Exception as e:
+                        print(f"Pyglet error: {e}")
+                        # Fallback to arcade
+                        try:
+                            sound = arcade.load_sound(audio_path)
+                            if sound:
+                                self.story_audio_player = arcade.play_sound(sound, volume=self.sound_volume)
+                                if duration == 0:
+                                    if hasattr(sound, 'get_length'):
+                                        duration = sound.get_length()
+                                    elif hasattr(sound, 'source') and hasattr(sound.source, 'duration'):
+                                        duration = sound.source.duration
+                        except Exception as e2:
+                            print(f"Arcade error: {e2}")
+
+                    if duration > 0:
+                        self.story_line_duration = duration + 0.5 # Add small buffer
+                        self.story_line_timer = self.story_line_duration
                         
-                        # Sync timer with audio duration
-                        duration = 0
-                        if hasattr(sound, 'get_length'):
-                            duration = sound.get_length()
-                        elif hasattr(sound, 'source') and hasattr(sound.source, 'duration'):
-                            duration = sound.source.duration
-                            
-                        if duration > 0:
-                            self.story_line_duration = duration + 0.5 # Add small buffer
-                            self.story_line_timer = self.story_line_duration
-                            
-                        print(f"Воспроизводится аудиофайл: {audio_path}, длительность: {duration}")
+                    print(f"Воспроизводится аудиофайл: {audio_path}, длительность: {duration}")
                 except Exception as e:
                     print(f"Ошибка воспроизведения аудио: {e}")
             else:
                 print(f"Аудиофайл не найден: {audio_path}")
 
-    def play_story_audio(self, text):
-        import threading
-
-        threading.Thread(
-            target=self._generate_and_play_audio_thread, args=(
-                text,), daemon=True
-        ).start()
-
-    def _generate_and_play_audio_thread(self, text):
-        try:
-            import asyncio
-            asyncio.run(self._speak_text_async(text))
-        except Exception:
-            pass
-
-    async def _speak_text_async(self, text):
-        try:
-            import edge_tts
-            filename = os.path.join(os.getcwd(), "story_audio_current.mp3")
-            if os.path.exists(filename):
-                try:
-                    os.remove(filename)
-                except:
-                    pass
-            communicate = edge_tts.Communicate(text, "ru-RU-DmitryNeural")
-            await communicate.save(filename)
-            if os.path.exists(filename):
-                self.pending_audio_path = filename
-        except Exception:
-            pass
+    # Генерация TTS озвучки удалена; используется папка story_audio

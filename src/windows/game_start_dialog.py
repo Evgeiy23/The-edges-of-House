@@ -62,64 +62,7 @@ class GameStartDialog(arcade.View):
         )
         main_box.add(title_label)
 
-        # Добавляем кнопки для озвучки и перехода
-        story_box = arcade.gui.UIBoxLayout(vertical=False, space_between=10)
-
-        # Кнопка включения озвучки
-        voice_status = "Отключить озвучку" if getattr(
-            ProjectSettings.Game, 'VOICE_ENABLED', True) else "Включить озвучку"
-        voice_button = arcade.gui.UIFlatButton(
-            text=voice_status,
-            width=200,
-            height=settings.BUTTON_HEIGHT
-        )
-        voice_button.style = {
-            "normal": {
-                "bg_color": arcade.color.DARK_BLUE,
-                "border_color": arcade.color.WHITE,
-                "border_width": 2
-            },
-            "hover": {
-                "bg_color": arcade.color.BLUE,
-                "border_color": arcade.color.WHITE,
-                "border_width": 2
-            },
-            "press": {
-                "bg_color": arcade.color.DARK_BLUE,
-                "border_color": arcade.color.WHITE,
-                "border_width": 2
-            }
-        }
-        voice_button.on_click = self.on_voice_click
-        story_box.add(voice_button)
-
-        # Кнопка "Дальше" для пролистывания истории
-        next_button = arcade.gui.UIFlatButton(
-            text="Дальше",
-            width=200,
-            height=settings.BUTTON_HEIGHT
-        )
-        next_button.style = {
-            "normal": {
-                "bg_color": arcade.color.DARK_GREEN,
-                "border_color": arcade.color.WHITE,
-                "border_width": 2
-            },
-            "hover": {
-                "bg_color": arcade.color.GREEN,
-                "border_color": arcade.color.WHITE,
-                "border_width": 2
-            },
-            "press": {
-                "bg_color": arcade.color.DARK_GREEN,
-                "border_color": arcade.color.WHITE,
-                "border_width": 2
-            }
-        }
-        next_button.on_click = self.on_next_click
-        story_box.add(next_button)
-
-        main_box.add(story_box)
+        pass
 
         save_exists = os.path.exists(get_savegame_path())
 

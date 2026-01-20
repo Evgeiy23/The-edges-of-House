@@ -88,7 +88,7 @@ class StartWindowMusic:
 
     def play_settings_music(self):
         """Воспроизведение музыки настроек"""
-        path = self.find_music_file("НТР - Теорема Лагранжа (Mix&Master).mp3")
+        path = self.find_music_file("/Users/evgen/Downloads/The-edges-of-House 8/music/background_music/easter_song.mp3")
         if not path:
             return
 
