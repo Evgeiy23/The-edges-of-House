@@ -180,7 +180,7 @@ class LoadingView(arcade.View):
             self.status = "done"
         except Exception as e:
             self.error = str(e)
-            traceback.print_exc()
+            # traceback.print_exc()
             self.status = "error"
 
     def on_draw(self):
@@ -297,7 +297,7 @@ class LoadingView(arcade.View):
                             if hasattr(self.story_audio_player, "pause"):
                                 self.story_audio_player.pause()
                             arcade.stop_sound(self.story_audio_player)
-                        except:
+                        except Exception:
                             pass
                     sound = arcade.load_sound(self.pending_audio_path)
                     if sound:
@@ -359,14 +359,14 @@ class LoadingView(arcade.View):
                         if hasattr(self.story_audio_player, "pause"):
                             self.story_audio_player.pause()
                         arcade.stop_sound(self.story_audio_player)
-                    except:
+                    except Exception:
                         pass
                     self.story_audio_player = None
                 if self.afplay_process:
                     try:
                         self.afplay_process.terminate()
                         self.afplay_process = None
-                    except:
+                    except Exception:
                         pass
                 self.current_story_line = None
                 if hasattr(self, 'story_lines'):
@@ -391,14 +391,14 @@ class LoadingView(arcade.View):
                     if hasattr(self.story_audio_player, "pause"):
                         self.story_audio_player.pause()
                     arcade.stop_sound(self.story_audio_player)
-                except:
+                except Exception:
                     pass
                 self.story_audio_player = None
             if self.afplay_process:
                 try:
                     self.afplay_process.terminate()
                     self.afplay_process = None
-                except:
+                except Exception:
                     pass
             self.current_story_line = None
             self.show_start_prompt = False
@@ -467,7 +467,7 @@ class LoadingView(arcade.View):
                             if hasattr(self.story_audio_player, "pause"):
                                 self.story_audio_player.pause()
                             arcade.stop_sound(self.story_audio_player)
-                        except:
+                        except Exception:
                             pass
                         self.story_audio_player = None
 
@@ -476,11 +476,10 @@ class LoadingView(arcade.View):
                         try:
                             self.afplay_process.terminate()
                             self.afplay_process = None
-                        except:
+                        except Exception:
                             pass
                     
                     duration = 0
-                    is_mp3 = audio_path.lower().endswith('.mp3')
                     
                     # 1. Сначала пробуем Pyglet (для корректного определения длительности)
                     try:
@@ -491,7 +490,7 @@ class LoadingView(arcade.View):
                             
                         # Если мы на macOS и громкость > 0, используем afplay для гарантии звука
                         if platform.system() == 'Darwin' and self.sound_volume > 0:
-                            print(f"Используем afplay (macOS) для: {audio_path}")
+                            # print(f"Используем afplay (macOS) для: {audio_path}")
                             # afplay поддерживает опцию -v для громкости (0-255? Нет, 0-1 или логарифмически)
                             # man afplay: -v VOLUME (high quality linear volume, 1 is normal)
                             vol_str = str(max(0.0, min(1.0, self.sound_volume)))
@@ -502,11 +501,11 @@ class LoadingView(arcade.View):
                             self.story_audio_player = media.play()
                             try:
                                 self.story_audio_player.volume = self.sound_volume
-                            except:
+                            except Exception:
                                 pass
                                 
                     except Exception as e:
-                        print(f"Pyglet error: {e}")
+                        # print(f"Pyglet error: {e}")
                         # Fallback to arcade
                         try:
                             sound = arcade.load_sound(audio_path)
@@ -518,16 +517,19 @@ class LoadingView(arcade.View):
                                     elif hasattr(sound, 'source') and hasattr(sound.source, 'duration'):
                                         duration = sound.source.duration
                         except Exception as e2:
-                            print(f"Arcade error: {e2}")
+                            # print(f"Arcade error: {e2}")
+                            pass
 
                     if duration > 0:
                         self.story_line_duration = duration + 0.5 # Add small buffer
                         self.story_line_timer = self.story_line_duration
                         
-                    print(f"Воспроизводится аудиофайл: {audio_path}, длительность: {duration}")
+                    # print(f"Воспроизводится аудиофайл: {audio_path}, длительность: {duration}")
                 except Exception as e:
-                    print(f"Ошибка воспроизведения аудио: {e}")
+                    # print(f"Ошибка воспроизведения аудио: {e}")
+                    pass
             else:
-                print(f"Аудиофайл не найден: {audio_path}")
+                # print(f"Аудиофайл не найден: {audio_path}")
+                pass
 
     # Генерация TTS озвучки удалена; используется папка story_audio

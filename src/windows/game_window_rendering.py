@@ -3,7 +3,6 @@
 Содержит все методы, связанные с рендерингом
 """
 import arcade
-import arcade.camera as arcade_camera
 import random
 import time
 
@@ -106,7 +105,8 @@ class GameWindowRendering:
         # Draw textures
         for val, lists in texture_batches.items():
             tex = self.dungeon_map.textures.get(val)
-            if not tex: continue
+            if not tex:
+                continue
             
             # Visible
             for cx, cy in lists['visible']:
@@ -198,6 +198,14 @@ class GameWindowRendering:
                 boss_grid_x = int(boss.pos[0])
                 boss_grid_y = int(boss.pos[1])
                 
+                # Fog of War check for enemies
+                # Hide if not in currently visible area
+                if self.use_fov and self.visibility_grid:
+                    if (0 <= boss_grid_y < len(self.visibility_grid) and 
+                        0 <= boss_grid_x < len(self.visibility_grid[0])):
+                        if not self.visibility_grid[boss_grid_y][boss_grid_x]:
+                            continue
+                
                 is_visible = False
                 if self.visibility_grid and 0 <= boss_grid_y < len(self.visibility_grid) and 0 <= boss_grid_x < len(self.visibility_grid[0]):
                     is_visible = self.visibility_grid[boss_grid_y][boss_grid_x]
@@ -207,38 +215,156 @@ class GameWindowRendering:
                 if is_visible:
                     boss.draw()
 
-        # Draw chests in same room
+        # Draw chests if visible
         if self.chest_sprites and self.player and self.dungeon_map:
-            player_room_id = self.dungeon_map.get_room_id(
-                self.player.pos[0], self.player.pos[1])
             chests_to_draw = arcade.SpriteList()
             for chest in self.chest_sprites:
                 chest_grid_x = int(chest.center_x / self.tile_size)
                 chest_grid_y = int(chest.center_y / self.tile_size)
-                chest_room_id = self.dungeon_map.get_room_id(
-                    chest_grid_x, chest_grid_y)
-                if chest_room_id == player_room_id:
+                
+                is_visible = False
+                if self.visibility_grid and 0 <= chest_grid_y < len(self.visibility_grid) and 0 <= chest_grid_x < len(self.visibility_grid[0]):
+                    is_visible = self.visibility_grid[chest_grid_y][chest_grid_x]
+                elif (chest_grid_x, chest_grid_y) in self.visible_tiles:
+                    is_visible = True
+                    
+                if is_visible:
                     chests_to_draw.append(chest)
             if len(chests_to_draw) > 0:
                 chests_to_draw.draw()
 
-        # Draw dropped items in same room
+        # Draw dropped items if visible
         if self.dropped_item_sprites and self.player and self.dungeon_map:
-            player_room_id = self.dungeon_map.get_room_id(
-                self.player.pos[0], self.player.pos[1])
             items_to_draw = arcade.SpriteList()
             for item in self.dropped_item_sprites:
                 item_grid_x = int(item.center_x / self.tile_size)
                 item_grid_y = int(item.center_y / self.tile_size)
-                item_room_id = self.dungeon_map.get_room_id(
-                    item_grid_x, item_grid_y)
-                if item_room_id == player_room_id:
+                
+                is_visible = False
+                if self.visibility_grid and 0 <= item_grid_y < len(self.visibility_grid) and 0 <= item_grid_x < len(self.visibility_grid[0]):
+                    is_visible = self.visibility_grid[item_grid_y][item_grid_x]
+                elif (item_grid_x, item_grid_y) in self.visible_tiles:
+                    is_visible = True
+                    
+                if is_visible:
                     items_to_draw.append(item)
             if len(items_to_draw) > 0:
                 items_to_draw.draw()
 
         if self.ambient_sprites:
-            self.ambient_sprites.draw()
+            # Cull ambient sprites based on visibility
+            visible_ambient = arcade.SpriteList()
+            for s in self.ambient_sprites:
+                # Update grid position if moving
+                if hasattr(s, 'change_x') and (s.change_x != 0 or s.change_y != 0):
+                    s.grid_x = int(s.center_x / self.tile_size)
+                    s.grid_y = int(s.center_y / self.tile_size)
+                
+                gx, gy = getattr(s, 'grid_x', 0), getattr(s, 'grid_y', 0)
+                
+                is_visible = False
+                if self.visibility_grid and 0 <= gy < len(self.visibility_grid) and 0 <= gx < len(self.visibility_grid[0]):
+                    is_visible = self.visibility_grid[gy][gx]
+                elif (gx, gy) in self.visible_tiles:
+                    is_visible = True
+                    
+                if is_visible:
+                    visible_ambient.append(s)
+            
+            if len(visible_ambient) > 0:
+                visible_ambient.draw()
+
+        # Draw Sage
+        if hasattr(self, 'sage') and self.sage:
+            sage_x = int(self.sage.pos[0])
+            sage_y = int(self.sage.pos[1])
+            
+            is_visible = False
+            if self.visibility_grid and 0 <= sage_y < len(self.visibility_grid) and 0 <= sage_x < len(self.visibility_grid[0]):
+                is_visible = self.visibility_grid[sage_y][sage_x]
+            elif (sage_x, sage_y) in self.visible_tiles:
+                is_visible = True
+                
+            if is_visible:
+                self.sage.draw()
+                if self.player:
+                    self.sage.draw_ui(self.player.draw_pos)
+
+        # Draw Mages
+        if hasattr(self, 'mages') and self.mages:
+            for mage in self.mages:
+                mage_x = int(mage.pos[0])
+                mage_y = int(mage.pos[1])
+                
+                is_visible = False
+                if self.visibility_grid and 0 <= mage_y < len(self.visibility_grid) and 0 <= mage_x < len(self.visibility_grid[0]):
+                    is_visible = self.visibility_grid[mage_y][mage_x]
+                elif (mage_x, mage_y) in self.visible_tiles:
+                    is_visible = True
+                    
+                if is_visible:
+                    mage.draw()
+                    if self.player:
+                        mage.draw_ui(self.player.draw_pos)
+
+        # Draw Ghosts (Batched)
+        if hasattr(self, 'ghost_manager') and self.ghost_manager:
+            # self.ghost_manager.sprite_list.draw() # Draw all (fast)
+            
+            # Or better: draw active/visible ones if we want to support visibility system strictly
+            # But SpriteList.draw() is very fast, so maybe just draw all?
+            # However, we have a visibility system (fog of war).
+            # If we want to respect Fog of War, we must only draw visible ghosts.
+            
+            # Since SpriteList doesn't easily support per-sprite visibility toggle without removing/adding,
+            # we can iterate and draw visible ones OR update the SpriteList alpha/visible property in update loop.
+            
+            # For "Optimization" requested by user, we should rely on the manager's active list
+            # AND the visibility grid.
+            
+            # Let's use the individual draw for now but restricted to active_ghosts
+            # OR create a temporary SpriteList for visible ghosts every frame (might be slow)
+            # OR just update the alpha of sprites in the main list.
+            
+            # Let's try iterating active ghosts (which are already spatially culled)
+            # and check visibility.
+            
+            visible_sprites = arcade.SpriteList()
+            targets = self.ghost_manager.active_ghosts if self.ghost_manager.active_ghosts else self.ghost_manager.ghosts
+            
+            for ghost in targets:
+                ghost_x = int(ghost.pos[0])
+                ghost_y = int(ghost.pos[1])
+                
+                is_visible = False
+                if self.visibility_grid and 0 <= ghost_y < len(self.visibility_grid) and 0 <= ghost_x < len(self.visibility_grid[0]):
+                    is_visible = self.visibility_grid[ghost_y][ghost_x]
+                elif (ghost_x, ghost_y) in self.visible_tiles:
+                    is_visible = True
+                    
+                if is_visible:
+                    if ghost.sprite:
+                        visible_sprites.append(ghost.sprite)
+            
+            visible_sprites.draw()
+
+        # Draw Merchant
+        if hasattr(self, 'merchant') and self.merchant:
+            merchant_grid_x = int(self.merchant.pos[0])
+            merchant_grid_y = int(self.merchant.pos[1])
+            
+            is_visible = False
+            if self.visibility_grid and 0 <= merchant_grid_y < len(self.visibility_grid) and 0 <= merchant_grid_x < len(self.visibility_grid[0]):
+                is_visible = self.visibility_grid[merchant_grid_y][merchant_grid_x]
+            elif (merchant_grid_x, merchant_grid_y) in self.visible_tiles:
+                is_visible = True
+                
+            if is_visible:
+                self.merchant.draw()
+                if self.player:
+                    self.merchant.draw_ui(self.player.draw_pos)
+
+        self.draw_passage_opening_effect()
 
         self.draw_minimap()
         self.draw_player_health()
@@ -351,7 +477,7 @@ class GameWindowRendering:
         total_w = slots * slot_size + (slots - 1) * padding
         x0 = (self.window.width - total_w) // 2
         y0 = 20
-        inv_list = arcade.SpriteList()
+        # inv_list = arcade.SpriteList()
         for i in range(slots):
             left = x0 + i * (slot_size + padding)
             right = left + slot_size
@@ -367,7 +493,16 @@ class GameWindowRendering:
                 if tex:
                     cx = (left + right) / 2
                     cy = (bottom + top) / 2
-                    arcade.draw_texture_rectangle(cx, cy, slot_size * 0.8, slot_size * 0.8, tex)
+                    sp = arcade.Sprite()
+                    sp.texture = tex
+                    sp.center_x = cx
+                    sp.center_y = cy
+                    sp.width = slot_size * 0.8
+                    sp.height = slot_size * 0.8
+                    
+                    sp_list = arcade.SpriteList()
+                    sp_list.append(sp)
+                    sp_list.draw()
 
     def draw_player_health_above(self):
         """Отрисовка полоски здоровья игрока над игроком"""
@@ -497,17 +632,17 @@ class GameWindowRendering:
                                                   mini_y - minimap_scale,
                                                   mini_y, color)
 
+        # Player (Green)
         player_mini_x = minimap_x + self.player.pos[0] * minimap_scale
         player_mini_y = minimap_y - self.player.pos[1] * minimap_scale
-        if self.minimap_player_draw_pos is None:
-            self.minimap_player_draw_pos = (
-                float(player_mini_x), float(player_mini_y))
-        else:
-            lerp = 0.25
-            cur_x, cur_y = self.minimap_player_draw_pos
-            cur_x += (player_mini_x - cur_x) * lerp
-            cur_y += (player_mini_y - cur_y) * lerp
-            self.minimap_player_draw_pos = (cur_x, cur_y)
-            player_mini_x, player_mini_y = cur_x, cur_y
+        
         arcade.draw_circle_filled(
-            player_mini_x, player_mini_y, minimap_scale * 0.8, arcade.color.YELLOW)
+            player_mini_x, player_mini_y, minimap_scale * 0.8, arcade.color.GREEN)
+
+        # Bosses (Yellow) - Instant position
+        for boss in self.bosses:
+            if boss and boss.is_alive():
+                boss_mini_x = minimap_x + boss.pos[0] * minimap_scale
+                boss_mini_y = minimap_y - boss.pos[1] * minimap_scale
+                arcade.draw_circle_filled(
+                    boss_mini_x, boss_mini_y, minimap_scale * 0.8, arcade.color.YELLOW)

@@ -207,12 +207,12 @@ def load_map_payload(map_name: str = "current") -> Optional[MapPayload]:
 
 def generate_and_store_map(map_width: int, map_height: int, game_cfg,
                            spawn_corner: Optional[str] = None,
-                           map_name: str = "current") -> MapPayload:
+                           map_name: str = "current", seed=None) -> MapPayload:
     if generate_dungeon is None:
         raise RuntimeError("Map generator is not available")
 
     map_data, rooms, room_tile_map, corridor_tiles, exit_pos, exit_room_idx, exit_door_positions = generate_dungeon(
-        map_width, map_height, game_cfg, spawn_corner)
+        map_width, map_height, game_cfg, spawn_corner, seed)
 
     payload: MapPayload = {
         "map_data": map_data,

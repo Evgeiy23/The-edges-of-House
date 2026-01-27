@@ -1,15 +1,185 @@
 import random
-import math
+import time
 
+def generate_dungeon(map_width, map_height, cfg, spawn_corner=None, seed=None):
+    if seed is None:
+        seed = int(time.time())
+    random.seed(seed)
+    
+    print(f"Generating map with seed: {seed}")
+    
+    # Use the requested 3-room generation logic
+    return _generate_three_room_layout(map_width, map_height, cfg, spawn_corner, seed)
 
-def generate_dungeon(map_width, map_height, cfg, spawn_corner=None):
+def _generate_three_room_layout(map_width, map_height, cfg, spawn_corner=None, seed=None):
+    room_size_min = getattr(cfg, 'MIN_ROOM_SIZE', 8)
+    room_size_max = getattr(cfg, 'MAX_ROOM_SIZE', 16)
+    
+    map_data = [[1 for _ in range(map_width)] for _ in range(map_height)]
+    rooms = []
+    room_tile_map = {}
+    corridor_tiles = set()
+    
+    # 1. Spawn Room (Left side)
+    if spawn_corner == "bottom_left":
+        x1 = random.randint(2, 5)
+        y1 = random.randint(2, 5)
+    else:
+        x1 = random.randint(2, map_width // 4)
+        y1 = random.randint(2, map_height // 4)
+        
+    w1 = random.randint(room_size_min, room_size_max)
+    h1 = random.randint(room_size_min, room_size_max)
+    
+    room1 = {"x1": x1, "y1": y1, "x2": x1 + w1, "y2": y1 + h1}
+    rooms.append(room1)
+    
+    # 2. Boss Room (Right side, Far away)
+    # Boss room should be enclosed with a specific entry point
+    w2 = random.randint(room_size_min + 4, room_size_max + 4) # Slightly larger
+    h2 = random.randint(room_size_min + 4, room_size_max + 4)
+    
+    x2 = random.randint(map_width - w2 - 10, map_width - w2 - 2)
+    y2 = random.randint(map_height - h2 - 10, map_height - h2 - 2)
+    
+    room2 = {"x1": x2, "y1": y2, "x2": x2 + w2, "y2": y2 + h2}
+    rooms.append(room2)
+    
+    # 3. Intermediate Room (Middle)
+    w3 = random.randint(room_size_min, room_size_max)
+    h3 = random.randint(room_size_min, room_size_max)
+    
+    x3 = random.randint(map_width // 3, 2 * map_width // 3)
+    y3 = random.randint(map_height // 3, 2 * map_height // 3)
+    
+    room3 = {"x1": x3, "y1": y3, "x2": x3 + w3, "y2": y3 + h3}
+    rooms.append(room3)
+    
+    # Carve Rooms
+    for i, room in enumerate(rooms):
+        for y in range(room["y1"], room["y2"]):
+            for x in range(room["x1"], room["x2"]):
+                map_data[y][x] = 1 # Wall border
+        
+        for y in range(room["y1"] + 1, room["y2"] - 1):
+            for x in range(room["x1"] + 1, room["x2"] - 1):
+                map_data[y][x] = 2 # Floor
+                room_tile_map[(x, y)] = i
+
+    # Connect Rooms: Room 1 -> Room 3 -> Room 2
+    corridors_count = 0
+    
+    def create_tunnel(r_start, r_end):
+        nonlocal corridors_count
+        c1 = ((r_start["x1"] + r_start["x2"]) // 2, (r_start["y1"] + r_start["y2"]) // 2)
+        c2 = ((r_end["x1"] + r_end["x2"]) // 2, (r_end["y1"] + r_end["y2"]) // 2)
+        
+        # Horizontal then Vertical
+        if random.random() < 0.5:
+            # H
+            for x in range(min(c1[0], c2[0]), max(c1[0], c2[0]) + 1):
+                if map_data[c1[1]][x] == 1:
+                    map_data[c1[1]][x] = 0
+                    corridor_tiles.add((x, c1[1]))
+                    corridors_count += 1
+                # Widen
+                if map_data[c1[1]+1][x] == 1:
+                     map_data[c1[1]+1][x] = 0
+                     corridor_tiles.add((x, c1[1]+1))
+            
+            # V
+            for y in range(min(c1[1], c2[1]), max(c1[1], c2[1]) + 1):
+                if map_data[y][c2[0]] == 1:
+                    map_data[y][c2[0]] = 0
+                    corridor_tiles.add((c2[0], y))
+                    corridors_count += 1
+                # Widen
+                if map_data[y][c2[0]+1] == 1:
+                    map_data[y][c2[0]+1] = 0
+                    corridor_tiles.add((c2[0]+1, y))
+        else:
+            # V
+            for y in range(min(c1[1], c2[1]), max(c1[1], c2[1]) + 1):
+                if map_data[y][c1[0]] == 1:
+                    map_data[y][c1[0]] = 0
+                    corridor_tiles.add((c1[0], y))
+                    corridors_count += 1
+                if map_data[y][c1[0]+1] == 1:
+                    map_data[y][c1[0]+1] = 0
+                    corridor_tiles.add((c1[0]+1, y))
+            
+            # H
+            for x in range(min(c1[0], c2[0]), max(c1[0], c2[0]) + 1):
+                if map_data[c2[1]][x] == 1:
+                    map_data[c2[1]][x] = 0
+                    corridor_tiles.add((x, c2[1]))
+                    corridors_count += 1
+                if map_data[c2[1]+1][x] == 1:
+                     map_data[c2[1]+1][x] = 0
+                     corridor_tiles.add((x, c2[1]+1))
+
+    create_tunnel(rooms[0], rooms[2])
+    create_tunnel(rooms[2], rooms[1]) # Connect to Boss Room
+
+    # Boss Room Logic (Room 2)
+    # The exit should be INSIDE the boss room, not at the edge.
+    # We will place it at the center of the boss room.
+    # And we need to define the "door" to the boss room to close it.
+    
+    # Find the entrance to the boss room (approximate)
+    # Since we connected Room 3 -> Room 2, the entrance is where the corridor meets Room 2.
+    # We can just iterate the perimeter of Room 2 and find floor tiles that are corridors.
+    
+    boss_room = rooms[1]
+    exit_door_positions = []
+    
+    # Scan perimeter
+    for x in range(boss_room["x1"], boss_room["x2"]):
+        # Top
+        if (x, boss_room["y1"]) in corridor_tiles or map_data[boss_room["y1"]][x] == 0:
+            exit_door_positions.append((x, boss_room["y1"]))
+        # Bottom
+        if (x, boss_room["y2"]-1) in corridor_tiles or map_data[boss_room["y2"]-1][x] == 0:
+            exit_door_positions.append((x, boss_room["y2"]-1))
+            
+    for y in range(boss_room["y1"], boss_room["y2"]):
+        # Left
+        if (boss_room["x1"], y) in corridor_tiles or map_data[y][boss_room["x1"]] == 0:
+            exit_door_positions.append((boss_room["x1"], y))
+        # Right
+        if (boss_room["x2"]-1, y) in corridor_tiles or map_data[y][boss_room["x2"]-1] == 0:
+             exit_door_positions.append((boss_room["x2"]-1, y))
+             
+    # Place Exit in Center of Boss Room
+    ex = (boss_room["x1"] + boss_room["x2"]) // 2
+    ey = (boss_room["y1"] + boss_room["y2"]) // 2
+    
+    # Ensure exit is on floor
+    map_data[ey][ex] = 2 # Initially just floor. Will be drawn as Red Square when active.
+    # We don't set it to 3 (Exit) yet because it's inactive. 
+    # Logic in GameWindow will handle activation and drawing.
+    # Actually, let's mark it as 3 but handle "inactive" state in game logic
+    # OR better: keep it 2, and store coordinates. GameWindow will check "if boss dead -> draw portal & check collision"
+    
+    # Let's set it to 3 so logic works, but we can override drawing/behavior
+    map_data[ey][ex] = 3 
+    
+    exit_pos = (ex, ey)
+    exit_room_idx = 1 # Boss Room is index 1
+
+    print(f"--- Map Generation Statistics ---")
+    print(f"Rooms count: {len(rooms)}")
+    print(f"Corridors segments created: {corridors_count}")
+
+    return map_data, rooms, room_tile_map, list(corridor_tiles), exit_pos, exit_room_idx, exit_door_positions
+
+def _original_generate_dungeon(map_width, map_height, cfg, spawn_corner=None):
     room_size = max(6, random.randint(cfg.MIN_ROOM_SIZE, cfg.MAX_ROOM_SIZE))
     # Увеличиваем ширину коридоров для комфортного прохода
     corridor_width = max(8, getattr(cfg, 'CORRIDOR_WIDTH', 14))
     # Увеличиваем толщину проходов
     passage_thickness = max(3, getattr(cfg, 'PASSAGE_THICKNESS', 3))
     exit_room_multiplier = getattr(cfg, 'EXIT_ROOM_SIZE_MULTIPLIER', 1.5)
-    spacing_y = room_size + corridor_width + random.randint(2, 5)
     center_x = map_width // 2
 
     base_offset = room_size + corridor_width + random.randint(3, 6)

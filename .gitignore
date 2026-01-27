@@ -8,6 +8,9 @@ __pycache__/
 
 dedicated_server/
 
+
+.ruff_cache/
+
 # Distribution / packaging
 .Python
 build/

@@ -75,6 +75,11 @@ class StartWindow(arcade.View, StartWindowMusic, StartWindowBackground, StartWin
         self.title_text_object = None
         self.title_shadow_text_object = None
         self.button_text_objects = {}
+        
+        # Mage Sprite
+        self.mage_sprite = None
+        self.mage_sprite_list = arcade.SpriteList()
+        self._ensure_mage_sprite()
 
         self.setup_ui()
         self.load_settings()
@@ -108,7 +113,7 @@ class StartWindow(arcade.View, StartWindowMusic, StartWindowBackground, StartWin
 
             return resolutions
         except Exception as e:
-            print(f"Ошибка получения разрешений: {e}")
+            # print(f"Ошибка получения разрешений: {e}")
             return ProjectSettings.Settings.RESOLUTIONS
 
     def get_native_resolution(self):
@@ -246,6 +251,12 @@ class StartWindow(arcade.View, StartWindowMusic, StartWindowBackground, StartWin
             self.background_list.draw()
         except Exception:
             self._ensure_background_sprite()
+            
+        try:
+            if self.mage_sprite_list:
+                self.mage_sprite_list.draw()
+        except Exception:
+            pass
 
         try:
             import pyglet
@@ -312,10 +323,13 @@ class StartWindow(arcade.View, StartWindowMusic, StartWindowBackground, StartWin
             except Exception:
                 pass
 
+            # Title text (without suffixes)
+            title_text = settings.TITLE_TEXT
+
             shadow_offset = 3
-            if not self.title_shadow_text_object:
+            if not self.title_shadow_text_object or self.title_shadow_text_object.text != title_text:
                 self.title_shadow_text_object = arcade.Text(
-                    settings.TITLE_TEXT,
+                    title_text,
                     self.title_x + shadow_offset,
                     self.title_y - shadow_offset,
                     settings.TITLE_SHADOW_COLOR,
@@ -331,9 +345,9 @@ class StartWindow(arcade.View, StartWindowMusic, StartWindowBackground, StartWin
                 self.title_shadow_text_object.y = self.title_y - shadow_offset
             self.title_shadow_text_object.draw()
 
-            if not self.title_text_object:
+            if not self.title_text_object or self.title_text_object.text != title_text:
                 self.title_text_object = arcade.Text(
-                    settings.TITLE_TEXT,
+                    title_text,
                     self.title_x,
                     self.title_y,
                     settings.TITLE_COLOR,
@@ -348,6 +362,32 @@ class StartWindow(arcade.View, StartWindowMusic, StartWindowBackground, StartWin
                 self.title_text_object.x = self.title_x
                 self.title_text_object.y = self.title_y
             self.title_text_object.draw()
+
+            # Find lowest button position for version text
+            min_button_y = self.height
+            has_buttons = False
+            try:
+                for button in self.buttons:
+                    if hasattr(button, 'rect'):
+                        if button.rect.bottom < min_button_y:
+                            min_button_y = button.rect.bottom
+                            has_buttons = True
+            except Exception:
+                pass
+            
+            if not has_buttons:
+                min_button_y = self.height // 2 - 100
+
+            # Draw Version below buttons
+            version_text = f"Версия игры: {ProjectSettings.VERSION}"
+            arcade.draw_text(
+                version_text,
+                self.width // 2,
+                min_button_y - 20,
+                arcade.color.GRAY,
+                12,
+                anchor_x="center", anchor_y="top"
+            )
 
         for button, text in zip(self.buttons, self.button_texts):
             if hasattr(button, 'rect'):
@@ -395,6 +435,22 @@ class StartWindow(arcade.View, StartWindowMusic, StartWindowBackground, StartWin
 
         arcade.set_background_color(ProjectSettings.BACKGROUND_COLOR)
         if self.window:
+            # Update Window Caption with Suffixes
+            caption = ProjectSettings.WINDOW_TITLE
+            suffixes = []
+            if ProjectSettings.CHEATS_ENABLED:
+                suffixes.append("С ЧИТАМИ")
+            if not ProjectSettings.MUSIC_ENABLED:
+                suffixes.append("БЕЗ МУЗЫКИ")
+            
+            if suffixes:
+                caption += f" ({', '.join(suffixes)})"
+            
+            try:
+                self.window.set_caption(caption)
+            except Exception:
+                pass
+
             if not self.window.fullscreen:
                 try:
                     self.window.set_size(self.window.width, self.window.height)
@@ -420,28 +476,53 @@ class StartWindow(arcade.View, StartWindowMusic, StartWindowBackground, StartWin
             except Exception:
                 pass
 
-            if hasattr(self, 'main_music_player') and self.main_music_player:
-                try:
-                    if hasattr(self.main_music_player, "volume"):
-                        self.main_music_player.volume = self.music_volume
-                except Exception:
-                    pass
-
         # Ensure main menu music is playing when view is shown
         try:
-            if not self.main_music_player:
-                self.play_main_music()
-            else:
-                self.resume_main_music()
+            self.play_main_music()
         except Exception:
             pass
 
         # Ensure volume is properly applied after view is shown
-        if self.main_music_player and hasattr(self.main_music_player, "volume"):
-            try:
-                self.main_music_player.volume = self.music_volume
-            except Exception:
-                pass
+        from game.logic.music_manager import MusicManager
+        MusicManager().set_volume(self.music_volume)
+
+    def _ensure_mage_sprite(self):
+        """Ensure mage_sprite is loaded and present in mage_sprite_list."""
+        try:
+            if self.mage_sprite:
+                return
+
+            # Path from MageNPC
+            mage_path = os.path.join("resources", "npcs", "Sage", "PNG", "PNG Sequences", "Idle", "0_Sage_Idle_000.png")
+            
+            # Check if file exists to avoid errors
+            if not os.path.exists(mage_path):
+                # Try finding absolute path
+                base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+                mage_path = os.path.join(base_dir, mage_path)
+            
+            if os.path.exists(mage_path):
+                self.mage_sprite = arcade.Sprite(mage_path)
+                # Small scale
+                self.mage_sprite.scale = 0.5 
+                # Purple tint like in game
+                self.mage_sprite.color = (150, 100, 255)
+                self.mage_sprite_list.append(self.mage_sprite)
+                self.update_mage_position()
+        except Exception:
+            pass
+
+    def update_mage_position(self):
+        if self.mage_sprite and self.window:
+            # Bottom right corner with some padding
+            padding = 20
+            
+            # Use sprite width/height for correct positioning if available
+            width = self.mage_sprite.width if hasattr(self.mage_sprite, 'width') else 50
+            height = self.mage_sprite.height if hasattr(self.mage_sprite, 'height') else 50
+            
+            self.mage_sprite.center_x = self.window.width - width // 2 - padding
+            self.mage_sprite.center_y = height // 2 + padding
 
     def _ensure_background_sprite(self):
         """Ensure background_sprite is loaded and present in background_list."""
@@ -521,6 +602,7 @@ class StartWindow(arcade.View, StartWindowMusic, StartWindowBackground, StartWin
         self.screen_width = width
         self.screen_height = height
         self.update_background_scale()
+        self.update_mage_position()
         settings = ProjectSettings.StartWindow
         self.title_x = self.screen_width // 2
         self.title_y = self.screen_height // 2 + settings.TITLE_TOP_OFFSET + 150
@@ -538,6 +620,8 @@ class StartWindow(arcade.View, StartWindowMusic, StartWindowBackground, StartWin
             pass
 
     def on_update(self, delta_time):
+        self.update_music(delta_time)
+
         if self.window:
             current_width = self.window.width
             current_height = self.window.height
@@ -554,6 +638,11 @@ class StartWindow(arcade.View, StartWindowMusic, StartWindowBackground, StartWin
                 v = (self.music_volume_slider.value or 0) / 100.0
                 if abs(v - self.music_volume) > 0.001:
                     self.music_volume = v
+                    
+                    # Update MusicManager volume
+                    from game.logic.music_manager import MusicManager
+                    MusicManager().set_volume(self.music_volume)
+                    
                     if self.settings_player and hasattr(self.settings_player, "volume"):
                         try:
                             self.settings_player.volume = self.music_volume
@@ -739,11 +828,11 @@ class StartWindow(arcade.View, StartWindowMusic, StartWindowBackground, StartWin
     def on_apply_settings_click(self, event):
         self.music_volume = (self.music_volume_slider.value or 0) / 100.0
         self.sound_volume = (self.sound_volume_slider.value or 0) / 100.0
-        if self.settings_player and hasattr(self.settings_player, "volume"):
-            try:
-                self.settings_player.volume = self.music_volume
-            except Exception:
-                pass
+        
+        # Update MusicManager volume
+        from game.logic.music_manager import MusicManager
+        MusicManager().set_volume(self.music_volume)
+
         self.apply_display_settings()
         self.save_settings()
 
@@ -890,135 +979,3 @@ class StartWindow(arcade.View, StartWindowMusic, StartWindowBackground, StartWin
         except Exception as e:
             print(f"Ошибка сохранения настроек: {e}")
 
-    def play_settings_music(self):
-        path = self.find_music_file("НТР - Теорема Лагранжа (Mix&Master).mp3")
-        if not path:
-            return
-
-        ext = os.path.splitext(path)[1].lower()
-        try:
-            if ext in ".mp3":
-                media = pyglet.media.load(path, streaming=False)
-                self.settings_player = media.play()
-                self.settings_player.loop = True
-                # Apply volume to settings music player
-                if hasattr(self.settings_player, "volume"):
-                    if self.music_volume <= 0:
-                        self.settings_player.volume = 0
-                    else:
-                        self.settings_player.volume = self.music_volume
-                return
-        except Exception:
-            pass
-
-        try:
-            self.settings_sound = arcade.Sound(path)
-            # Explicitly handle volume = 0 case for settings music
-            if self.music_volume <= 0:
-                self.settings_player = self.settings_sound.play(
-                    loop=True, volume=0)
-            else:
-                self.settings_player = self.settings_sound.play(
-                    loop=True, volume=self.music_volume)
-        except Exception:
-            try:
-                sound = arcade.load_sound(path)
-                # Apply volume when playing sound
-                if self.music_volume <= 0:
-                    self.settings_player = arcade.play_sound(sound, volume=0)
-                else:
-                    self.settings_player = arcade.play_sound(
-                        sound, volume=self.music_volume)
-            except Exception:
-                self.settings_sound = None
-                self.settings_player = None
-
-    def stop_settings_music(self):
-        if self.settings_player:
-            try:
-                if hasattr(self.settings_player, "pause"):
-                    try:
-                        self.settings_player.loop = False
-                    except Exception:
-                        pass
-                    self.settings_player.pause()
-                    try:
-                        self.settings_player.delete()
-                    except Exception:
-                        pass
-                else:
-                    self.settings_player.stop()
-            except Exception:
-                pass
-            self.settings_player = None
-
-    def play_main_music(self):
-        # Prefer specific track, fallback to any available in folder
-        path = self.find_music_file("scary_horror_theme.mp3")
-        if not path:
-            path = self.find_music_file()
-        if not path:
-            return
-        ext = os.path.splitext(path)[1].lower()
-        try:
-            if ext in ".mp3":
-                media = pyglet.media.load(path, streaming=False)
-                self.main_music_player = media.play()
-                self.main_music_player.loop = True
-                try:
-                    self.main_music_player.volume = self.music_volume
-                except Exception:
-                    pass
-                return
-        except Exception:
-            pass
-        try:
-            self.main_music_sound = arcade.Sound(path)
-            # Explicitly handle volume = 0 case
-            if self.music_volume <= 0:
-                self.main_music_player = self.main_music_sound.play(
-                    loop=True, volume=0)
-            else:
-                self.main_music_player = self.main_music_sound.play(
-                    loop=True, volume=self.music_volume)
-        except Exception:
-            try:
-                self.main_music_sound = arcade.Sound(path)
-                # Explicitly handle volume = 0 case
-                if self.music_volume <= 0:
-                    self.main_music_player = self.main_music_sound.play(
-                        volume=0)
-                else:
-                    self.main_music_player = self.main_music_sound.play(
-                        volume=self.music_volume)
-                if hasattr(self.main_music_player, 'volume'):
-                    self.main_music_player.volume = self.music_volume
-            except Exception:
-                self.main_music_sound = None
-                self.main_music_player = None
-
-    def pause_main_music(self):
-        if self.main_music_player:
-            try:
-                if hasattr(self.main_music_player, "pause"):
-                    self.main_music_player.pause()
-                else:
-                    self.main_music_player.stop()
-            except Exception:
-                pass
-
-    def resume_main_music(self):
-        if self.main_music_player:
-            try:
-                if hasattr(self.main_music_player, "play"):
-                    self.main_music_player.play()
-                    try:
-                        self.main_music_player.loop = True
-                    except Exception:
-                        pass
-                    try:
-                        self.main_music_player.volume = self.music_volume
-                    except Exception:
-                        pass
-            except Exception:
-                pass

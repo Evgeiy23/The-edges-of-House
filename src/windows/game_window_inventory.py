@@ -2,13 +2,14 @@
 Модуль для управления инвентарем и предметами
 """
 import arcade
+import time
 from game.items.effects import ITEM_EFFECTS
 
 
 class GameWindowInventory:
     """Класс-миксин для методов управления инвентарем"""
     
-    def spawn_dropped_item(self, icon_id, px, py):
+    def spawn_dropped_item(self, icon_id, px, py, ignore_player_duration=0.0, velocity=(0, 0)):
         """Создает предмет на земле"""
         tex = self.item_textures.get(icon_id)
         if not tex:
@@ -19,7 +20,15 @@ class GameWindowInventory:
             sp.scale = (self.tile_size / tex.width) * 0.7
         sp.center_x = px
         sp.center_y = py
-        sp.properties = {"icon_id": icon_id}
+        
+        # Physics properties
+        sp.change_x = velocity[0]
+        sp.change_y = velocity[1]
+        
+        props = {"icon_id": icon_id}
+        if ignore_player_duration > 0:
+            props["ignore_until"] = time.time() + ignore_player_duration
+        sp.properties = props
         self.dropped_item_sprites.append(sp)
 
     def apply_inventory_effects(self):

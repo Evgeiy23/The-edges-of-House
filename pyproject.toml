@@ -7,4 +7,5 @@ requires-python = ">=3.12"
 dependencies = [
     "arcade[full]>=2.6.0",
     "edge-tts>=7.2.7",
+    "groq>=1.0.0",
 ]

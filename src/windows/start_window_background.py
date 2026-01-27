@@ -2,9 +2,7 @@
 Модуль для управления фоном в стартовом окне
 """
 import arcade
-import arcade.camera as arcade_camera
 from project import ProjectSettings
-from utils import get_config_path
 
 
 class StartWindowBackground:

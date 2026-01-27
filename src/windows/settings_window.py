@@ -1,6 +1,5 @@
 import arcade
 import arcade.gui
-import arcade.camera as arcade_camera
 import os
 import json
 import pyglet
@@ -63,7 +62,7 @@ class SettingsView(arcade.View):
 
             return resolutions
         except Exception as e:
-            print(f"Ошибка получения разрешений: {e}")
+            # print(f"Ошибка получения разрешений: {e}")
             return ProjectSettings.Settings.RESOLUTIONS
 
     def setup_ui(self):
@@ -436,7 +435,7 @@ class SettingsView(arcade.View):
                 try:
                     self.window.set_size(
                         self.saved_window_width, self.saved_window_height)
-                except:
+                except Exception:
                     pass
         self.window.show_view(self.parent_view)
 
@@ -449,7 +448,7 @@ class SettingsView(arcade.View):
                 try:
                     self.window.set_size(
                         self.saved_window_width, self.saved_window_height)
-                except:
+                except Exception:
                     pass
         self.window.show_view(self.parent_view)
 
@@ -514,7 +513,7 @@ class SettingsView(arcade.View):
                     try:
                         self.window.set_size(
                             self.saved_window_width, self.saved_window_height)
-                    except:
+                    except Exception:
                         pass
 
             self._ensure_background_sprite()
@@ -556,41 +555,17 @@ class SettingsView(arcade.View):
                     scale_y = self.height / texture_height
                     scale = max(scale_x, scale_y)
                     
-                    # На macOS используем более стабильный метод отрисовки
-                    is_macos = platform.system() == "Darwin"
-                    if is_macos:
-                        # Используем SpriteList для более стабильной отрисовки на macOS
-                        if not hasattr(self, '_bg_sprite') or self._bg_sprite is None:
-                            self._bg_sprite = arcade.Sprite()
-                            self._bg_sprite.texture = self.background_texture
-                            self._bg_sprite_list = arcade.SpriteList()
-                            self._bg_sprite_list.append(self._bg_sprite)
-                        
-                        self._bg_sprite.center_x = center_x
-                        self._bg_sprite.center_y = center_y
-                        self._bg_sprite.scale = scale
-                        self._bg_sprite_list.draw()
-                    else:
-                        # На Windows используем стандартный метод
-                        scaled_width = texture_width * scale
-                        scaled_height = texture_height * scale
-                        
-                        # Рисуем текстуру в центре экрана
-                        arcade.draw_texture_rectangle(
-                            center_x, center_y,
-                            scaled_width, scaled_height,
-                            self.background_texture
-                        )
-
-                    scaled_width = texture_width * scale
-                    scaled_height = texture_height * scale
-
-                    # Рисуем текстуру в центре экрана
-                    arcade.draw_texture_rectangle(
-                        center_x, center_y,
-                        scaled_width, scaled_height,
-                        self.background_texture
-                    )
+                    # Используем SpriteList для отрисовки (работает везде)
+                    if not hasattr(self, '_bg_sprite') or self._bg_sprite is None:
+                        self._bg_sprite = arcade.Sprite()
+                        self._bg_sprite.texture = self.background_texture
+                        self._bg_sprite_list = arcade.SpriteList()
+                        self._bg_sprite_list.append(self._bg_sprite)
+                    
+                    self._bg_sprite.center_x = center_x
+                    self._bg_sprite.center_y = center_y
+                    self._bg_sprite.scale = scale
+                    self._bg_sprite_list.draw()
             except Exception as e:
                 print(f"Ошибка отрисовки фона: {e}")
 

@@ -19,7 +19,9 @@ class Boss:
         self.sprite = None
         self.sprite_list = None
         self.is_attacking = False
+        self.is_moving = False
         self.attack_timer = 0.0
+        self.damage_dealt = False
         self.attack_duration = 0.8
         self.animations = {}
         self.current_animation_frames = []
@@ -44,15 +46,30 @@ class Boss:
         # Боевая система
         self.attack_range = 1.5  # Дистанция атаки в клетках
         self.attack_damage = 25  # Урон от атаки босса: 25 единиц
+        self.defense = 5 # Base defense
         self.attack_cooldown = 2.0
         self.last_attack_time = 0.0
 
         # Движение босса (в клетках в секунду)
         self.move_speed = 2.0
+        self.visible = True
 
         self._initialize_sprites()
         self._load_animations()
         self._update_animation()
+
+    def scale_stats(self, level):
+        """Scales boss stats based on level"""
+        # Example scaling: +10% health and +5% damage per level
+        multiplier = 1.0 + (level - 1) * 0.1
+        dmg_multiplier = 1.0 + (level - 1) * 0.05
+        
+        self.max_health = int(self.max_health * multiplier)
+        self.health = self.max_health
+        self.attack_damage = int(self.attack_damage * dmg_multiplier)
+        self.defense = int(self.defense * multiplier)
+        
+        print(f"Boss {self.boss_type} scaled to Level {level}: HP={self.health}, Dmg={self.attack_damage}, Def={self.defense}")
 
     def _initialize_sprites(self):
         """Инициализация спрайтов"""
@@ -175,8 +192,8 @@ class Boss:
                 self.facing = 'back' if dy > 0 else 'front'
             self._update_animation()
 
-    def move_towards_player(self, player_pixel_pos, delta_time):
-        """Движение к игроку (плавное)"""
+    def move_towards_player(self, player_pixel_pos, delta_time, is_walkable_func=None):
+        """Движение к игроку (плавное) с учетом препятствий"""
         if self.is_dead or self.is_attacking:
             return
 
@@ -191,6 +208,7 @@ class Boss:
         min_dist = self.tile_size * 0.8
 
         if dist > min_dist:
+            self.is_moving = True
             speed_pixels = self.move_speed * self.tile_size
             move_dist = speed_pixels * delta_time
 
@@ -198,12 +216,54 @@ class Boss:
                 move_dist = dist
 
             angle = math.atan2(dy, dx)
-            self.draw_pos[0] += math.cos(angle) * move_dist
-            self.draw_pos[1] += math.sin(angle) * move_dist
+            
+            # Попытка движения по прямой
+            move_x = math.cos(angle) * move_dist
+            move_y = math.sin(angle) * move_dist
+            
+            new_x = current_x + move_x
+            new_y = current_y + move_y
+            
+            can_move = True
+            if is_walkable_func:
+                # Проверяем новую позицию (центр)
+                grid_x = int(round((new_x - self.tile_size // 2) / self.tile_size))
+                grid_y = int(round((new_y - self.tile_size // 2) / self.tile_size))
+                
+                # Если целевая клетка недоступна
+                if not is_walkable_func(grid_x, grid_y):
+                    can_move = False
+                    
+                    # Попытка скольжения вдоль стен
+                    # Пробуем только по X
+                    new_x_only = current_x + move_x
+                    grid_x_only = int(round((new_x_only - self.tile_size // 2) / self.tile_size))
+                    grid_y_curr = int(round((current_y - self.tile_size // 2) / self.tile_size))
+                    
+                    if is_walkable_func(grid_x_only, grid_y_curr):
+                        new_x = new_x_only
+                        new_y = current_y
+                        can_move = True
+                    else:
+                        # Пробуем только по Y
+                        new_y_only = current_y + move_y
+                        grid_y_only = int(round((new_y_only - self.tile_size // 2) / self.tile_size))
+                        grid_x_curr = int(round((current_x - self.tile_size // 2) / self.tile_size))
+                        
+                        if is_walkable_func(grid_x_curr, grid_y_only):
+                            new_x = current_x
+                            new_y = new_y_only
+                            can_move = True
 
-            # Обновляем спрайт
-            self.sprite.center_x = self.draw_pos[0]
-            self.sprite.center_y = self.draw_pos[1]
+            if can_move:
+                self.draw_pos[0] = new_x
+                self.draw_pos[1] = new_y
+                self.sprite.center_x = self.draw_pos[0]
+                self.sprite.center_y = self.draw_pos[1]
+                
+                # Обновляем grid pos
+                self.pos[0] = int(round((self.draw_pos[0] - self.tile_size // 2) / self.tile_size))
+                self.pos[1] = int(round((self.draw_pos[1] - self.tile_size // 2) / self.tile_size))
 
     def draw(self):
         if self.sprite_list:
@@ -215,11 +275,15 @@ class Boss:
                 round((self.draw_pos[0] - self.tile_size // 2) / self.tile_size))
             self.pos[1] = int(
                 round((self.draw_pos[1] - self.tile_size // 2) / self.tile_size))
+            
+            self.draw_health_bar()
 
-    def update(self, delta_time, player_pos=None):
+    def update(self, delta_time, player_pos=None, dungeon_map=None):
         """Обновление босса"""
         if self.is_dead:
             return
+
+        self.is_moving = False
 
         # Обновление таймера урона
         if self.hurt_timer > 0:
@@ -236,12 +300,14 @@ class Boss:
                 dist_sq = dx*dx + dy*dy
                 # If player is out of reach (plus a small buffer), cancel attack
                 # Using a slightly larger range than attack_range to prevent flickering
-                cancel_range = self.attack_range * 1.5
+                cancel_range = self.attack_range * self.tile_size * 1.5
                 if dist_sq > cancel_range * cancel_range:
                         self.is_attacking = False
                         self.attack_timer = 0.0
                         self.state = 'idle'
                         self._update_animation()
+                        if self.sprite.color == (255, 100, 100):
+                             self.sprite.color = (255, 255, 255)
                         return
 
             if self.attack_timer >= self.attack_duration:
@@ -249,6 +315,8 @@ class Boss:
                 self.attack_timer = 0.0
                 self.state = 'idle'
                 self._update_animation()
+                if self.sprite.color == (255, 100, 100):
+                     self.sprite.color = (255, 255, 255)
         # Ensure we don't get stuck in attacking state if something goes wrong
         elif self.state == 'attacking' and not self.is_attacking:
             # This shouldn't happen, but if it does, reset to idle
@@ -277,21 +345,72 @@ class Boss:
                 except Exception:
                     pass
 
-        # Поворот к игроку (координаты игрока ожидаются в пикселях)
-        if player_pos and not self.is_attacking:
+        # Движение и поворот к игроку
+        if player_pos and not self.is_attacking and self.visible:
             dx = player_pos[0] - self.draw_pos[0]
             dy = player_pos[1] - self.draw_pos[1]
+            dist_sq = dx*dx + dy*dy
+            dist = math.sqrt(dist_sq)
+            
+            # Update facing
             if abs(dx) > abs(dy):
                 new_facing = 'right' if dx > 0 else 'left'
             else:
                 new_facing = 'back' if dy > 0 else 'front'
 
-            # Only update facing if it changed to avoid unnecessary animation updates
             if self.facing != new_facing:
                 self.facing = new_facing
-                # Only update animation if we're not in attacking state
-                if self.state != 'attacking':
+                self._update_animation()
+
+            # Attack check
+            attack_dist_pixels = self.attack_range * self.tile_size
+            if dist <= attack_dist_pixels:
+                if self.last_attack_time >= self.attack_cooldown:
+                    self.is_attacking = True
+                    self.damage_dealt = False
+                    self.state = 'attacking'
+                    self.last_attack_time = 0.0
                     self._update_animation()
+                    # Visual indication handled by animation, but we can add color flash
+                    self.sprite.color = (255, 100, 100) # Red tint start
+            else:
+                # Movement
+                if dist > 0:
+                    self.is_moving = True
+                    speed = self.move_speed * self.tile_size # Convert cells/sec to pixels/sec
+                    move_x = (dx / dist) * speed * delta_time
+                    move_y = (dy / dist) * speed * delta_time
+                    
+                    new_x = self.draw_pos[0] + move_x
+                    new_y = self.draw_pos[1] + move_y
+                    
+                    # Collision detection
+                    if dungeon_map:
+                        # Check X
+                        gx = int(new_x / self.tile_size)
+                        gy = int(self.draw_pos[1] / self.tile_size)
+                        if dungeon_map.is_walkable(gx, gy):
+                            self.draw_pos[0] = new_x
+                        
+                        # Check Y
+                        gx = int(self.draw_pos[0] / self.tile_size)
+                        gy = int(new_y / self.tile_size)
+                        if dungeon_map.is_walkable(gx, gy):
+                            self.draw_pos[1] = new_y
+                    else:
+                        self.draw_pos[0] = new_x
+                        self.draw_pos[1] = new_y
+
+                    self.sprite.center_x = self.draw_pos[0]
+                    self.sprite.center_y = self.draw_pos[1]
+                    
+                    # Reset color if not attacking
+                    if self.sprite.color == (255, 100, 100):
+                         self.sprite.color = (255, 255, 255)
+
+            # Update grid pos
+            self.pos[0] = int(self.draw_pos[0] / self.tile_size)
+            self.pos[1] = int(self.draw_pos[1] / self.tile_size)
 
         # Обновление анимации
         self.update_animation(delta_time)
@@ -309,11 +428,7 @@ class Boss:
                 self.current_frame_index + 1) % len(self.current_animation_frames)
             self.sprite.texture = self.current_animation_frames[self.current_frame_index]
 
-    def draw(self):
-        """Отрисовка босса"""
-        if self.sprite_list:
-            self.sprite_list.draw()
-
+    def draw_health_bar(self):
         # Отрисовка полоски здоровья
         if not self.is_dead:
             bar_width = self.tile_size * 1.5
@@ -356,22 +471,20 @@ class Boss:
     def take_damage(self, damage):
         """Наносит урон боссу"""
         if self.is_dead:
-            print(f"Попытка нанести урон мертвому боссу {self.boss_type}")
             return
 
+        # Apply defense
+        effective_damage = max(1, damage - self.defense)
+        
         old_health = self.health
-        self.health = max(0, self.health - damage)
+        self.health = max(0, self.health - effective_damage)
         self.hurt_timer = self.hurt_duration
-
-        print(
-            f"Босс {self.boss_type} получил {damage} урона! HP: {old_health} -> {self.health}/{self.max_health}")
 
         if self.health <= 0:
             self.health = 0
             self.is_dead = True
             self.state = 'dying'
             self._update_animation()
-            print(f"Босс {self.boss_type} убит!")
 
     def attack_player(self, player_pos):
         """Атакует игрока, если он в радиусе. player_pos в пикселях. Возвращает True только при начале новой атаки"""
@@ -397,8 +510,6 @@ class Boss:
             self.state = 'attacking'
             self._update_animation()
             self.last_attack_time = 0.0
-            print(
-                f"Босс {self.boss_type} начинает атаку на игрока! Расстояние: {distance:.2f}, радиус: {attack_range_pixels}")
             return True  # Возвращаем True только при начале новой атаки
         return False
     

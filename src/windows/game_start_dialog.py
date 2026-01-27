@@ -1,8 +1,6 @@
 import arcade
 import arcade.gui
 import os
-import json
-import math
 from project import ProjectSettings
 from utils import get_savegame_path
 
@@ -40,11 +38,11 @@ class GameStartDialog(arcade.View):
 
         status = "включена" if getattr(
             ProjectSettings.Game, 'VOICE_ENABLED', True) else "отключена"
-        print(f"Озвучка {status}")
+        # print(f"Озвучка {status}")
 
     def on_next_click(self, event):
         """Обработка нажатия кнопки 'Дальше'"""
-        print("Переход к следующей части истории")
+        # print("Переход к следующей части истории")
         # Здесь можно добавить функционал пролистывания истории
 
     def setup_ui(self):

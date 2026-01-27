@@ -2,6 +2,10 @@ import arcade
 import os
 import json
 import pyglet
+import warnings
+import argparse
+# Suppress all warnings including Arcade's PerformanceWarning
+warnings.filterwarnings("ignore")
 from windows.start_window import StartWindow
 from project import ProjectSettings
 from utils import get_config_path
@@ -31,7 +35,7 @@ def load_window_settings():
                             resolutions.append(res)
                     resolutions.sort(key=lambda x: x[0] * x[1], reverse=True)
 
-                except:
+                except Exception:
                     resolutions = ProjectSettings.Settings.RESOLUTIONS
 
                 if 0 <= resolution_index < len(resolutions):
@@ -46,12 +50,24 @@ def load_window_settings():
                 return width, height, fullscreen, window_mode
 
         except Exception as e:
-            print(f"Ошибка загрузки настроек: {e}")
+            pass
+            # print(f"Ошибка загрузки настроек: {e}")
 
     return 1920, 1080, ProjectSettings.FULLSCREEN, ProjectSettings.Settings.DEFAULT_WINDOW_MODE
 
 
 def main():
+    parser = argparse.ArgumentParser(description="The Edges of House Game")
+    parser.add_argument("--wc", "--with-cheats", action="store_true", help="Enable cheats")
+    parser.add_argument("--wom", "--without-music", action="store_true", help="Disable music")
+    args = parser.parse_args()
+
+    ProjectSettings.CHEATS_ENABLED = args.wc
+    ProjectSettings.MUSIC_ENABLED = not args.wom
+
+    if ProjectSettings.CHEATS_ENABLED:
+        ProjectSettings.VERSION += ".1-cheats"
+
     width, height, fullscreen, window_mode = load_window_settings()
 
     window = arcade.Window(
@@ -68,7 +84,7 @@ def main():
             x = (screen.width - width) // 2
             y = (screen.height - height) // 2
             window.set_location(x, y)
-        except:
+        except Exception:
             pass
 
     start_view = StartWindow()

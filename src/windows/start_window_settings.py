@@ -4,8 +4,6 @@
 import os
 import json
 import pyglet
-import arcade
-import arcade.gui
 from project import ProjectSettings
 from utils import get_config_path
 
@@ -46,7 +44,8 @@ class StartWindowSettings:
                             frame_limit)
 
             except Exception as e:
-                print(f"Ошибка загрузки настроек: {e}")
+                # print(f"Ошибка загрузки настроек: {e}")
+                pass
 
     def save_settings(self):
         """Сохранение настроек в файл"""
@@ -61,7 +60,8 @@ class StartWindowSettings:
             with open(get_config_path(), 'w', encoding='utf-8') as f:
                 json.dump(config, f, indent=2, ensure_ascii=False)
         except Exception as e:
-            print(f"Ошибка сохранения настроек: {e}")
+            # print(f"Ошибка сохранения настроек: {e}")
+            pass
 
     def get_window_mode_string(self):
         """Получение строки режима окна"""

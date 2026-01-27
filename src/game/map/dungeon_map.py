@@ -20,6 +20,7 @@ class DungeonMap:
         self.exit_door_positions = []  # Позиции прохода в комнату с выходом для закрытия
         self.exit_door_closed = False  # Флаг закрытия прохода
         self.collision_groups = {}
+        self.valid_spawn_coords = None # Cached list of valid spawn coordinates
 
         self.textures = {}
         self._load_textures()
@@ -159,6 +160,18 @@ class DungeonMap:
             return self.map_data[y][x]
         return None
 
+    def get_wall_coords(self):
+        """Returns a list of all wall coordinates in a structured format."""
+        if not self.wall_list:
+            self._cache_map_data()
+        return self.wall_list
+
+    def get_room_coords(self):
+        """Returns a list of all room center coordinates in a structured format."""
+        if not self.room_center_list:
+            self._cache_map_data()
+        return self.room_center_list
+
     def is_walkable(self, x, y):
         tile_value = self.get_tile_value(x, y)
         # 0, 2: Standard floors
@@ -187,4 +200,71 @@ class DungeonMap:
         
         self.exit_door_closed = True
         self.create_collision_groups()  # Обновляем коллизии
+
+    def get_valid_spawn_coords(self):
+        """Returns a list of all valid spawn coordinates."""
+        if not self.valid_spawn_coords:
+            self._cache_map_data()
+        return self.valid_spawn_coords
+
+    def _cache_map_data(self):
+        self.wall_list = []
+        self.room_center_list = []
+        self.valid_spawn_coords = []
+        
+        for y in range(self.map_height):
+            for x in range(self.map_width):
+                if not self.is_walkable(x, y):
+                    self.wall_list.append((x, y))
+                else:
+                    self.valid_spawn_coords.append((x, y))
+                    
+        for room in self.rooms:
+            # Calculate center
+            if isinstance(room, dict):
+                cx = (room.get('x1', 0) + room.get('x2', 0)) // 2
+                cy = (room.get('y1', 0) + room.get('y2', 0)) // 2
+                self.room_center_list.append((cx, cy))
+            elif hasattr(room, 'center'):
+                self.room_center_list.append(room.center)
+            elif hasattr(room, 'cx'):
+                 self.room_center_list.append((room.cx, room.cy))
+
+    def has_line_of_sight(self, start, end):
+        """Checks if there is a direct walkable line between start and end (grid coordinates)."""
+        x0, y0 = start
+        x1, y1 = end
+        
+        dx = abs(x1 - x0)
+        dy = abs(y1 - y0)
+        x, y = x0, y0
+        sx = -1 if x0 > x1 else 1
+        sy = -1 if y0 > y1 else 1
+        
+        if dx > dy:
+            err = dx / 2.0
+            while x != x1:
+                if not self.is_walkable(x, y):
+                    return False
+                err -= dy
+                if err < 0:
+                    y += sy
+                    err += dx
+                x += sx
+        else:
+            err = dy / 2.0
+            while y != y1:
+                if not self.is_walkable(x, y):
+                    return False
+                err -= dx
+                if err < 0:
+                    x += sx
+                    err += dy
+                y += sy
+                
+        # Check end point too (though usually target is walkable if we want to go there)
+        if not self.is_walkable(x1, y1):
+            return False
+            
+        return True
 

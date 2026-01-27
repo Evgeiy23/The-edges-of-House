@@ -79,6 +79,15 @@ class Player:
         }
         self.base_damage = 10 # Базовый урон
 
+        # Active Items Inventory
+        self.active_items = {
+            "bomb": 0,
+            "dynamite": 0,
+            "medkit": 0
+        }
+        self.active_item_keys = ["bomb", "dynamite", "medkit"]
+        self.selected_active_item_index = 0
+
         self._initialize_sprites()
         self._load_animations()
         self._update_animation()
@@ -107,29 +116,17 @@ class Player:
         # Load directional animations
         for direction in directions:
             for action_key, action_name in actions.items():
-                if direction == 'Right':
-                    # Use dedicated Right - Walking resources for walking; mirror others from Left
-                    if action_key == 'walking':
-                        folder_path = os.path.join(base_path, "Right - Walking")
-                        mirror = False
-                    else:
-                        folder_path = os.path.join(base_path, f"Left - {action_name}")
-                        mirror = True
-                else:
-                    folder_path = os.path.join(base_path, f"{direction} - {action_name}")
-                    mirror = False
+                mirror = False
+                folder_path = os.path.join(base_path, f"{direction} - {action_name}")
+                
+                # Check if specific folder exists, otherwise fallback for Right -> Left mirror
+                if not os.path.exists(folder_path) and direction == 'Right':
+                    folder_path = os.path.join(base_path, f"Left - {action_name}")
+                    mirror = True
 
                 if os.path.exists(folder_path):
                     pattern = os.path.join(folder_path, "*.png")
                     files = sorted(glob.glob(pattern))
-                    if action_key == 'attacking' and files:
-                        filtered = []
-                        for fp in files:
-                            name = os.path.basename(fp).lower()
-                            if name.startswith("attacking"):
-                                filtered.append(fp)
-                        if filtered:
-                            files = filtered
 
                     if files:
                         textures = []
@@ -216,9 +213,25 @@ class Player:
             else:
                 self.display_health += step if diff > 0 else -step
 
-    def draw(self):
-        if self.sprite_list:
-            self.sprite_list.draw()
+        # Update animation frame
+        if self.current_animation_frames:
+            self.animation_timer += delta_time
+            if self.animation_timer >= self.animation_speed:
+                while self.animation_timer >= self.animation_speed:
+                    self.animation_timer -= self.animation_speed
+                    self.current_frame_index += 1
+                
+                if self.current_frame_index >= len(self.current_animation_frames):
+                    if self.state == 'dying':
+                        self.current_frame_index = len(self.current_animation_frames) - 1
+                    elif self.state == 'attacking':
+                        self.current_frame_index = len(self.current_animation_frames) - 1
+                    else:
+                        self.current_frame_index %= len(self.current_animation_frames)
+                
+                self.sprite.texture = self.current_animation_frames[self.current_frame_index]
+
+
 
     def update_movement(self, delta_time):
         """Обновляет плавное движение игрока"""
@@ -503,3 +516,20 @@ class Player:
         if self.health_regen_timer >= self.health_regen_interval:
             self.health_regen_timer = 0.0
             self.heal(self.health_regen_amount)
+
+    def cycle_active_item(self):
+        """Переключает выбранный активный предмет"""
+        self.selected_active_item_index = (self.selected_active_item_index + 1) % len(self.active_item_keys)
+
+    def get_selected_active_item(self):
+        """Возвращает ключ и количество выбранного предмета"""
+        key = self.active_item_keys[self.selected_active_item_index]
+        count = self.active_items.get(key, 0)
+        return key, count
+
+    def use_active_item(self, key):
+        """Использует предмет (уменьшает количество)"""
+        if self.active_items.get(key, 0) > 0:
+            self.active_items[key] -= 1
+            return True
+        return False

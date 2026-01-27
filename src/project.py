@@ -4,8 +4,12 @@ import os
 
 class ProjectSettings:
     WINDOW_TITLE = "The Edges of House"
+    VERSION = "1.0"
     FULLSCREEN = True
     BACKGROUND_COLOR = arcade.color.BLACK
+    
+    CHEATS_ENABLED = False
+    MUSIC_ENABLED = True
 
     class StartWindow:
         BACKGROUND_IMAGE = "resources/background.jpg"
@@ -53,8 +57,8 @@ class ProjectSettings:
         MAP_HEIGHT_MULTIPLIER = 4
         MAP_GROWTH_PER_LEVEL = 1
         MAX_MAP_MULTIPLIER = 12
-        MIN_ROOM_SIZE = 4
-        MAX_ROOM_SIZE = 10
+        MIN_ROOM_SIZE = 8
+        MAX_ROOM_SIZE = 16
         CORRIDOR_WIDTH = 14  # Увеличиваем ширину коридоров для более комфортного прохода
         PASSAGE_THICKNESS = 4  # Увеличиваем толщину проходов
         MIN_HALL_SIZE = 12
@@ -63,6 +67,9 @@ class ProjectSettings:
         NUM_HALLS = 2
         SIDE_CORRIDOR_CHANCE = 0.4
         ROOMS_PER_SIDE_CORRIDOR = 3
+
+        MAGE_SPAWN_CHANCE = 0.3
+        MAX_MAGES = 3
 
     class Settings:
         WINDOW_MODE_FULLSCREEN = "fullscreen"
