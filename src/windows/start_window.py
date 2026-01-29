@@ -76,7 +76,7 @@ class StartWindow(arcade.View, StartWindowMusic, StartWindowBackground, StartWin
         self.title_shadow_text_object = None
         self.button_text_objects = {}
         
-        # Mage Sprite
+        # Спрайт мага
         self.mage_sprite = None
         self.mage_sprite_list = arcade.SpriteList()
         self._ensure_mage_sprite()
@@ -87,7 +87,7 @@ class StartWindow(arcade.View, StartWindowMusic, StartWindowBackground, StartWin
         self.play_main_music()
 
     def _initialize_background_list(self):
-        """Initialize background sprite list safely with proper OpenGL context"""
+        """Безопасная инициализация списка фоновых спрайтов с правильным контекстом OpenGL"""
         if self.background_list is None:
             self.background_list = arcade.SpriteList()
 
@@ -130,8 +130,8 @@ class StartWindow(arcade.View, StartWindowMusic, StartWindowBackground, StartWin
     def setup_ui(self):
         settings = ProjectSettings.StartWindow
 
-        # Common button style for consistency and readability
-        # Improved contrast and font size for better readability
+        # Единый стиль кнопок для согласованности и читаемости
+        # Улучшенный контраст и размер шрифта для лучшей читаемости
         button_style = {
             "normal": {
                 "font_size": 20,
@@ -363,7 +363,7 @@ class StartWindow(arcade.View, StartWindowMusic, StartWindowBackground, StartWin
                 self.title_text_object.y = self.title_y
             self.title_text_object.draw()
 
-            # Find lowest button position for version text
+            # Найти самую нижнюю позицию кнопки для текста версии
             min_button_y = self.height
             has_buttons = False
             try:
@@ -378,7 +378,7 @@ class StartWindow(arcade.View, StartWindowMusic, StartWindowBackground, StartWin
             if not has_buttons:
                 min_button_y = self.height // 2 - 100
 
-            # Draw Version below buttons
+            # Отрисовка версии под кнопками
             version_text = f"Версия игры: {ProjectSettings.VERSION}"
             arcade.draw_text(
                 version_text,
@@ -427,7 +427,7 @@ class StartWindow(arcade.View, StartWindowMusic, StartWindowBackground, StartWin
                 left, right, bottom, top, (0, 0, 0, alpha))
 
     def on_show_view(self):
-        # Called when this view becomes active
+        # Вызывается, когда этот вид становится активным
         try:
             self.manager.enable()
         except Exception:
@@ -435,7 +435,7 @@ class StartWindow(arcade.View, StartWindowMusic, StartWindowBackground, StartWin
 
         arcade.set_background_color(ProjectSettings.BACKGROUND_COLOR)
         if self.window:
-            # Update Window Caption with Suffixes
+            # Обновление заголовка окна с суффиксами
             caption = ProjectSettings.WINDOW_TITLE
             suffixes = []
             if ProjectSettings.CHEATS_ENABLED:
@@ -476,36 +476,36 @@ class StartWindow(arcade.View, StartWindowMusic, StartWindowBackground, StartWin
             except Exception:
                 pass
 
-        # Ensure main menu music is playing when view is shown
+        # Убедиться, что музыка главного меню играет, когда вид показан
         try:
             self.play_main_music()
         except Exception:
             pass
 
-        # Ensure volume is properly applied after view is shown
+        # Убедиться, что громкость применена правильно после показа вида
         from game.logic.music_manager import MusicManager
         MusicManager().set_volume(self.music_volume)
 
     def _ensure_mage_sprite(self):
-        """Ensure mage_sprite is loaded and present in mage_sprite_list."""
+        """Убедиться, что спрайт мага загружен и присутствует в mage_sprite_list."""
         try:
             if self.mage_sprite:
                 return
 
-            # Path from MageNPC
+            # Путь от MageNPC
             mage_path = os.path.join("resources", "npcs", "Sage", "PNG", "PNG Sequences", "Idle", "0_Sage_Idle_000.png")
             
-            # Check if file exists to avoid errors
+            # Проверка существования файла во избежание ошибок
             if not os.path.exists(mage_path):
-                # Try finding absolute path
+                # Попытка найти абсолютный путь
                 base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
                 mage_path = os.path.join(base_dir, mage_path)
             
             if os.path.exists(mage_path):
                 self.mage_sprite = arcade.Sprite(mage_path)
-                # Small scale
+                # Маленький масштаб
                 self.mage_sprite.scale = 0.5 
-                # Purple tint like in game
+                # Фиолетовый оттенок, как в игре
                 self.mage_sprite.color = (150, 100, 255)
                 self.mage_sprite_list.append(self.mage_sprite)
                 self.update_mage_position()
@@ -514,10 +514,10 @@ class StartWindow(arcade.View, StartWindowMusic, StartWindowBackground, StartWin
 
     def update_mage_position(self):
         if self.mage_sprite and self.window:
-            # Bottom right corner with some padding
+            # Правый нижний угол с отступом
             padding = 20
             
-            # Use sprite width/height for correct positioning if available
+            # Использовать ширину/высоту спрайта для правильного позиционирования, если доступно
             width = self.mage_sprite.width if hasattr(self.mage_sprite, 'width') else 50
             height = self.mage_sprite.height if hasattr(self.mage_sprite, 'height') else 50
             
@@ -525,13 +525,13 @@ class StartWindow(arcade.View, StartWindowMusic, StartWindowBackground, StartWin
             self.mage_sprite.center_y = height // 2 + padding
 
     def _ensure_background_sprite(self):
-        """Ensure background_sprite is loaded and present in background_list."""
+        """Убедиться, что спрайт фона загружен и присутствует в background_list."""
         try:
             bg_path = getattr(ProjectSettings.StartWindow,
                               'BACKGROUND_IMAGE', None)
             if not bg_path:
                 return
-            # Initialize background list if needed
+            # Инициализация списка фона при необходимости
             self._initialize_background_list()
 
             if self.background_sprite:

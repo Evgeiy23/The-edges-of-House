@@ -45,8 +45,8 @@ class Boss:
 
         # Боевая система
         self.attack_range = 1.5  # Дистанция атаки в клетках
-        self.attack_damage = 25  # Урон от атаки босса: 25 единиц
-        self.defense = 5 # Base defense
+        self.attack_damage = 20  # Урон от атаки босса: 20 единиц (по запросу)
+        self.defense = 5 # Базовая защита
         self.attack_cooldown = 2.0
         self.last_attack_time = 0.0
 
@@ -69,7 +69,7 @@ class Boss:
         self.attack_damage = int(self.attack_damage * dmg_multiplier)
         self.defense = int(self.defense * multiplier)
         
-        print(f"Boss {self.boss_type} scaled to Level {level}: HP={self.health}, Dmg={self.attack_damage}, Def={self.defense}")
+        print(f"Босс {self.boss_type} масштабирован до уровня {level}: HP={self.health}, Урон={self.attack_damage}, Защита={self.defense}")
 
     def _initialize_sprites(self):
         """Инициализация спрайтов"""

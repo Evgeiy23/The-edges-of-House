@@ -77,9 +77,9 @@ class Player:
             "defense": 5,
             "agility": 5
         }
-        self.base_damage = 10 # Базовый урон
+        self.base_damage = 15 # Базовый урон увеличен (было 5), чтобы пробивать защиту босса
 
-        # Active Items Inventory
+        # Инвентарь активных предметов
         self.active_items = {
             "bomb": 0,
             "dynamite": 0,
@@ -93,7 +93,7 @@ class Player:
         self._update_animation()
 
     def _initialize_sprites(self):
-        """Initialize sprites safely with proper OpenGL context"""
+        """Безопасная инициализация спрайтов с правильным контекстом OpenGL"""
         self.sprite = arcade.Sprite()
         self.sprite.center_x = 0
         self.sprite.center_y = 0
@@ -113,13 +113,13 @@ class Player:
             'hurt': 'Hurt'
         }
 
-        # Load directional animations
+        # Загрузка направленных анимаций
         for direction in directions:
             for action_key, action_name in actions.items():
                 mirror = False
                 folder_path = os.path.join(base_path, f"{direction} - {action_name}")
                 
-                # Check if specific folder exists, otherwise fallback for Right -> Left mirror
+                # Проверка существования конкретной папки, иначе откат к зеркалированию Право -> Лево
                 if not os.path.exists(folder_path) and direction == 'Right':
                     folder_path = os.path.join(base_path, f"Left - {action_name}")
                     mirror = True
@@ -148,7 +148,7 @@ class Player:
                             texture_width = textures[0].width
                             self.sprite.scale = (self.tile_size / texture_width) * 0.7
 
-        # Load Dying animation separately
+        # Загрузка анимации смерти отдельно
         dying_path = os.path.join(base_path, "Dying")
         if os.path.exists(dying_path):
             files = sorted(glob.glob(os.path.join(dying_path, "*.png")))
@@ -185,7 +185,7 @@ class Player:
         if self.is_attacking:
             self.attack_timer += delta_time
             
-            # Trigger strike at 40% of animation
+            # Запуск удара на 40% анимации
             if not self.damage_dealt and self.attack_timer >= self.attack_duration * 0.4:
                 self.should_strike = True
                 self.damage_dealt = True
@@ -213,7 +213,7 @@ class Player:
             else:
                 self.display_health += step if diff > 0 else -step
 
-        # Update animation frame
+        # Обновление кадра анимации
         if self.current_animation_frames:
             self.animation_timer += delta_time
             if self.animation_timer >= self.animation_speed:
@@ -379,7 +379,7 @@ class Player:
             self.should_strike = False
             self.state = 'attacking'
             
-            # Adjust animation speed
+            # Настройка скорости анимации
             anim_key = self._get_animation_key()
             if anim_key in self.animations:
                 frames = self.animations[anim_key]
@@ -453,7 +453,9 @@ class Player:
         if self.is_dead:
             return
 
-        # Учитываем блок
+        if getattr(self, "shield_active", False):
+            return
+
         if self.is_blocking:
             damage = int(damage * (1.0 - self.block_damage_reduction))
 

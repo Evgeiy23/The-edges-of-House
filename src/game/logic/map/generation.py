@@ -8,7 +8,7 @@ def generate_dungeon(map_width, map_height, cfg, spawn_corner=None, seed=None):
     
     print(f"Generating map with seed: {seed}")
     
-    # Use the requested 3-room generation logic
+    # Используем запрошенную логику генерации 3 комнат
     return _generate_three_room_layout(map_width, map_height, cfg, spawn_corner, seed)
 
 def _generate_three_room_layout(map_width, map_height, cfg, spawn_corner=None, seed=None):
@@ -20,7 +20,7 @@ def _generate_three_room_layout(map_width, map_height, cfg, spawn_corner=None, s
     room_tile_map = {}
     corridor_tiles = set()
     
-    # 1. Spawn Room (Left side)
+    # 1. Комната появления (Левая сторона)
     if spawn_corner == "bottom_left":
         x1 = random.randint(2, 5)
         y1 = random.randint(2, 5)
@@ -34,9 +34,9 @@ def _generate_three_room_layout(map_width, map_height, cfg, spawn_corner=None, s
     room1 = {"x1": x1, "y1": y1, "x2": x1 + w1, "y2": y1 + h1}
     rooms.append(room1)
     
-    # 2. Boss Room (Right side, Far away)
-    # Boss room should be enclosed with a specific entry point
-    w2 = random.randint(room_size_min + 4, room_size_max + 4) # Slightly larger
+    # 2. Комната босса (Правая сторона, далеко)
+    # Комната босса должна быть закрыта с определенной точкой входа
+    w2 = random.randint(room_size_min + 4, room_size_max + 4) # Немного больше
     h2 = random.randint(room_size_min + 4, room_size_max + 4)
     
     x2 = random.randint(map_width - w2 - 10, map_width - w2 - 2)
@@ -45,28 +45,47 @@ def _generate_three_room_layout(map_width, map_height, cfg, spawn_corner=None, s
     room2 = {"x1": x2, "y1": y2, "x2": x2 + w2, "y2": y2 + h2}
     rooms.append(room2)
     
-    # 3. Intermediate Room (Middle)
+    # 3. Промежуточная комната (Посередине)
     w3 = random.randint(room_size_min, room_size_max)
     h3 = random.randint(room_size_min, room_size_max)
     
-    x3 = random.randint(map_width // 3, 2 * map_width // 3)
-    y3 = random.randint(map_height // 3, 2 * map_height // 3)
+    x3_min = map_width // 3
+    x3_max = 2 * map_width // 3
+    
+    # Ensure room fits horizontally
+    if x3_max + w3 >= map_width - 1:
+        x3_max = map_width - w3 - 2
+    if x3_min > x3_max:
+        x3_min = max(2, x3_max)
+
+    x3 = random.randint(x3_min, x3_max)
+
+    y3_min = map_height // 3
+    y3_max = 2 * map_height // 3
+    
+    # Ensure room fits vertically
+    if y3_max + h3 >= map_height - 1:
+        y3_max = map_height - h3 - 2
+    if y3_min > y3_max:
+        y3_min = max(2, y3_max)
+
+    y3 = random.randint(y3_min, y3_max)
     
     room3 = {"x1": x3, "y1": y3, "x2": x3 + w3, "y2": y3 + h3}
     rooms.append(room3)
     
-    # Carve Rooms
+    # Вырезание комнат
     for i, room in enumerate(rooms):
         for y in range(room["y1"], room["y2"]):
             for x in range(room["x1"], room["x2"]):
-                map_data[y][x] = 1 # Wall border
+                map_data[y][x] = 1 # Граница стены
         
         for y in range(room["y1"] + 1, room["y2"] - 1):
             for x in range(room["x1"] + 1, room["x2"] - 1):
-                map_data[y][x] = 2 # Floor
+                map_data[y][x] = 2 # Пол
                 room_tile_map[(x, y)] = i
 
-    # Connect Rooms: Room 1 -> Room 3 -> Room 2
+    # Соединение комнат: Комната 1 -> Комната 3 -> Комната 2
     corridors_count = 0
     
     def create_tunnel(r_start, r_end):
@@ -74,31 +93,31 @@ def _generate_three_room_layout(map_width, map_height, cfg, spawn_corner=None, s
         c1 = ((r_start["x1"] + r_start["x2"]) // 2, (r_start["y1"] + r_start["y2"]) // 2)
         c2 = ((r_end["x1"] + r_end["x2"]) // 2, (r_end["y1"] + r_end["y2"]) // 2)
         
-        # Horizontal then Vertical
+        # Горизонтально, затем вертикально
         if random.random() < 0.5:
-            # H
+            # Г
             for x in range(min(c1[0], c2[0]), max(c1[0], c2[0]) + 1):
                 if map_data[c1[1]][x] == 1:
                     map_data[c1[1]][x] = 0
                     corridor_tiles.add((x, c1[1]))
                     corridors_count += 1
-                # Widen
+                # Расширение
                 if map_data[c1[1]+1][x] == 1:
                      map_data[c1[1]+1][x] = 0
                      corridor_tiles.add((x, c1[1]+1))
             
-            # V
+            # В
             for y in range(min(c1[1], c2[1]), max(c1[1], c2[1]) + 1):
                 if map_data[y][c2[0]] == 1:
                     map_data[y][c2[0]] = 0
                     corridor_tiles.add((c2[0], y))
                     corridors_count += 1
-                # Widen
+                # Расширение
                 if map_data[y][c2[0]+1] == 1:
                     map_data[y][c2[0]+1] = 0
                     corridor_tiles.add((c2[0]+1, y))
         else:
-            # V
+            # В
             for y in range(min(c1[1], c2[1]), max(c1[1], c2[1]) + 1):
                 if map_data[y][c1[0]] == 1:
                     map_data[y][c1[0]] = 0
@@ -108,7 +127,7 @@ def _generate_three_room_layout(map_width, map_height, cfg, spawn_corner=None, s
                     map_data[y][c1[0]+1] = 0
                     corridor_tiles.add((c1[0]+1, y))
             
-            # H
+            # Г
             for x in range(min(c1[0], c2[0]), max(c1[0], c2[0]) + 1):
                 if map_data[c2[1]][x] == 1:
                     map_data[c2[1]][x] = 0
@@ -119,53 +138,53 @@ def _generate_three_room_layout(map_width, map_height, cfg, spawn_corner=None, s
                      corridor_tiles.add((x, c2[1]+1))
 
     create_tunnel(rooms[0], rooms[2])
-    create_tunnel(rooms[2], rooms[1]) # Connect to Boss Room
+    create_tunnel(rooms[2], rooms[1]) # Соединение с комнатой босса
 
-    # Boss Room Logic (Room 2)
-    # The exit should be INSIDE the boss room, not at the edge.
-    # We will place it at the center of the boss room.
-    # And we need to define the "door" to the boss room to close it.
+    # Логика комнаты босса (Комната 2)
+    # Выход должен быть ВНУТРИ комнаты босса, а не на краю.
+    # Мы разместим его в центре комнаты босса.
+    # И нам нужно определить "дверь" в комнату босса, чтобы закрыть ее.
     
-    # Find the entrance to the boss room (approximate)
-    # Since we connected Room 3 -> Room 2, the entrance is where the corridor meets Room 2.
-    # We can just iterate the perimeter of Room 2 and find floor tiles that are corridors.
+    # Поиск входа в комнату босса (приблизительно)
+    # Так как мы соединили Комнату 3 -> Комнату 2, вход находится там, где коридор встречается с Комнатой 2.
+    # Мы можем просто перебрать периметр Комнаты 2 и найти плитки пола, которые являются коридорами.
     
     boss_room = rooms[1]
     exit_door_positions = []
     
-    # Scan perimeter
+    # Сканирование периметра
     for x in range(boss_room["x1"], boss_room["x2"]):
-        # Top
+        # Верх
         if (x, boss_room["y1"]) in corridor_tiles or map_data[boss_room["y1"]][x] == 0:
             exit_door_positions.append((x, boss_room["y1"]))
-        # Bottom
+        # Низ
         if (x, boss_room["y2"]-1) in corridor_tiles or map_data[boss_room["y2"]-1][x] == 0:
             exit_door_positions.append((x, boss_room["y2"]-1))
             
     for y in range(boss_room["y1"], boss_room["y2"]):
-        # Left
+        # Лево
         if (boss_room["x1"], y) in corridor_tiles or map_data[y][boss_room["x1"]] == 0:
             exit_door_positions.append((boss_room["x1"], y))
-        # Right
+        # Право
         if (boss_room["x2"]-1, y) in corridor_tiles or map_data[y][boss_room["x2"]-1] == 0:
-             exit_door_positions.append((boss_room["x2"]-1, y))
+            exit_door_positions.append((boss_room["x2"]-1, y))
              
-    # Place Exit in Center of Boss Room
+    # Размещение выхода в центре комнаты босса
     ex = (boss_room["x1"] + boss_room["x2"]) // 2
     ey = (boss_room["y1"] + boss_room["y2"]) // 2
     
-    # Ensure exit is on floor
-    map_data[ey][ex] = 2 # Initially just floor. Will be drawn as Red Square when active.
-    # We don't set it to 3 (Exit) yet because it's inactive. 
-    # Logic in GameWindow will handle activation and drawing.
-    # Actually, let's mark it as 3 but handle "inactive" state in game logic
-    # OR better: keep it 2, and store coordinates. GameWindow will check "if boss dead -> draw portal & check collision"
+    # Убедитесь, что выход находится на полу
+    map_data[ey][ex] = 2 # Изначально просто пол. Будет нарисован как красный квадрат, когда активен.
+    # Мы еще не устанавливаем его в 3 (Выход), потому что он неактивен. 
+    # Логика в GameWindow будет обрабатывать активацию и отрисовку.
+    # На самом деле, давайте отметим его как 3, но обработаем "неактивное" состояние в игровой логике
+    # ИЛИ лучше: оставить его 2 и сохранить координаты. GameWindow проверит "если босс мертв -> нарисовать портал и проверить столкновение"
     
-    # Let's set it to 3 so logic works, but we can override drawing/behavior
+    # Давайте установим его в 3, чтобы логика работала, но мы можем переопределить отрисовку/поведение
     map_data[ey][ex] = 3 
     
     exit_pos = (ex, ey)
-    exit_room_idx = 1 # Boss Room is index 1
+    exit_room_idx = 1 # Комната босса имеет индекс 1
 
     print(f"--- Map Generation Statistics ---")
     print(f"Rooms count: {len(rooms)}")
@@ -464,74 +483,74 @@ def _original_generate_dungeon(map_width, map_height, cfg, spawn_corner=None):
             ex, ey = exit_pos
             map_data[ey][ex] = 3
 
-    # Ensure there's an exit at the end of the exit room - place exit on the far side of the room from the entrance
+    # Убедитесь, что выход находится в конце комнаты выхода - разместите выход на дальней стороне комнаты от входа
     if rooms and exit_pos and exit_room_idx is not None:
-        # Find the exit room
+        # Найти комнату выхода
         exit_room = rooms[exit_room_idx]
         if isinstance(exit_room, dict):
-            # Calculate the side of the room that's farthest from the corridor connection
+            # Вычислить сторону комнаты, наиболее удаленную от соединения с коридором
             x1, y1, x2, y2 = exit_room["x1"], exit_room["y1"], exit_room["x2"], exit_room["y2"]
 
-            # Determine which side of the room connects to the corridor
+            # Определить, какая сторона комнаты соединяется с коридором
             closest_corridor_x = min(corridor_positions, key=lambda x: abs(
                 x - ((x1 + x2) // 2)))
 
-            # Determine where the entrance is (left or right side of room)
-            # Based on the original logic, door_x is calculated as follows:
+            # Определить, где находится вход (слева или справа от комнаты)
+            # На основе оригинальной логики, door_x вычисляется следующим образом:
             door_x = x1 if ((x1 + x2) // 2) < closest_corridor_x else x2 - 1
 
             if abs(door_x - x1) < abs(door_x - x2):
-                # Entrance is on the left side (x1), so exit should be on the right side (x2)
+                # Вход слева (x1), значит выход должен быть справа (x2)
                 exit_x = x2 - 1
                 exit_y = y1 + (y2 - y1) // 2
             else:
-                # Entrance is on the right side (x2), so exit should be on the left side (x1)
+                # Вход справа (x2), значит выход должен быть слева (x1)
                 exit_x = x1 + 1
                 exit_y = y1 + (y2 - y1) // 2
 
-            # Update the exit position to be at the far end of the room
-            # Only if it's different from the current exit position
+            # Обновить позицию выхода, чтобы она была в дальнем конце комнаты
+            # Только если она отличается от текущей позиции выхода
             if exit_pos != (exit_x, exit_y):
-                # Clear the old exit position
+                # Очистить старую позицию выхода
                 old_x, old_y = exit_pos
                 if 0 <= old_x < map_width and 0 <= old_y < map_height:
-                    # Restore the old exit position to a regular floor tile if it was an exit
+                    # Восстановить старую позицию выхода как обычную плитку пола, если это был выход
                     if map_data[old_y][old_x] == 3:
-                        map_data[old_y][old_x] = 2  # Floor tile
+                        map_data[old_y][old_x] = 2  # Плитка пола
 
-                # Set the new exit position
+                # Установить новую позицию выхода
                 if 0 <= exit_x < map_width and 0 <= exit_y < map_height:
-                    map_data[exit_y][exit_x] = 3  # Set as exit tile
+                    map_data[exit_y][exit_x] = 3  # Установить как плитку выхода
                     exit_pos = (exit_x, exit_y)
 
-    # Post-process map to add variety and decorations
+    # Постобработка карты для добавления разнообразия и декораций
     for y in range(map_height):
         for x in range(map_width):
-            if map_data[y][x] == 2:  # Room floor
-                # Randomly change some floor tiles to variants
+            if map_data[y][x] == 2:  # Пол комнаты
+                # Случайно изменить некоторые плитки пола на варианты
                 r = random.random()
                 if r < 0.1:
-                    map_data[y][x] = 10  # Floor variant 1
+                    map_data[y][x] = 10  # Вариант пола 1
                 elif r < 0.2:
-                    map_data[y][x] = 11  # Floor variant 2
+                    map_data[y][x] = 11  # Вариант пола 2
                 
-                # Add decorations (non-walkable)
-                # Only place if not near a door or in a narrow path
-                # Ideally, check neighbors to ensure we don't block
-                # Simple heuristic: don't place if adjacent to a corridor (0) or door
-                # Also don't place if it would block the only path (hard to check cheaply)
-                # Let's place them sparsely
+                # Добавить декорации (непроходимые)
+                # Размещать только если не рядом с дверью или в узком проходе
+                # В идеале, проверить соседей, чтобы убедиться, что мы не блокируем
+                # Простая эвристика: не размещать, если рядом с коридором (0) или дверью
+                # Также не размещать, если это заблокирует единственный путь (трудно проверить дешево)
+                # Давайте размещать их редко
                 elif r > 0.95:
-                    # Check neighbors
+                    # Проверить соседей
                     neighbors = [
                         map_data[y-1][x] if y > 0 else 1,
                         map_data[y+1][x] if y < map_height-1 else 1,
                         map_data[y][x-1] if x > 0 else 1,
                         map_data[y][x+1] if x < map_width-1 else 1
                     ]
-                    # If any neighbor is a corridor (0) or door/exit (3), avoid
+                    # Если любой сосед - коридор (0) или дверь/выход (3), избегать
                     if 0 not in neighbors and 3 not in neighbors:
-                         # Pick a decoration
+                         # Выбрать декорацию
                          dec_r = random.random()
                          if dec_r < 0.33:
                              map_data[y][x] = 20

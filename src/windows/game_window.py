@@ -53,11 +53,18 @@ class GameWindow(arcade.View, GameWindowRendering, GameWindowInventory,
     def __init__(self, load_save=False, map_payload=None, map_name="current", level_override=None, spawn_corner=None, difficulty=None):
         super().__init__()
         
-        # Always use easy difficulty
+        # Всегда использовать легкую сложность
         self.DIFFICULTY_EASY = ProjectSettings.Game.DIFFICULTY_EASY
         self.difficulty = difficulty or ProjectSettings.Game.DIFFICULTY_EASY
 
         self.cheats_one_hit_kill = ProjectSettings.CHEATS_ENABLED
+
+        self.cheat_block_enabled = False
+        self.shield_active = False
+        self.shield_duration = 4.0
+        self.shield_timer = 0.0
+        self.shield_cooldown = 5.0
+        self.shield_cooldown_timer = 0.0
 
         self.screen_width = 0
         self.screen_height = 0
@@ -69,7 +76,8 @@ class GameWindow(arcade.View, GameWindowRendering, GameWindowInventory,
         self.player = None
         self.sage = None
         self.merchant = None
-        self.mages = []  # List of MageNPCs
+        self.mages = []  # Список магов NPC
+        self.mage_spawned = False
         self.mage_dialog = MageDialog(self)
         self.bosses = []  # Список боссов
         self.ghost_manager = GhostManager(self.tile_size)
@@ -92,6 +100,7 @@ class GameWindow(arcade.View, GameWindowRendering, GameWindowInventory,
                           "left": False, "right": False}
         self._last_valid_pos = None  # Последняя валидная позиция для коллизий
         self.is_running = False
+        self.mage_spawned = False  # Флаг спавна уникального мага
         self.move_cooldown = 0.1
         self.move_timer = 0.0
         self.exit_music_played = False
@@ -134,6 +143,12 @@ class GameWindow(arcade.View, GameWindowRendering, GameWindowInventory,
         self.camera_shake_intensity = 0
         self.camera_shake_duration = 0
         self.camera_original_pos = None
+
+        # Эффекты смерти босса
+        self.dying_bosses = []
+        self.screen_flash_duration = 0.0
+        self.screen_flash_timer = 0.0
+        self.screen_flash_color = arcade.color.WHITE
 
         # Переменные отображения истории
         self.story_showing = False
@@ -206,6 +221,9 @@ class GameWindow(arcade.View, GameWindowRendering, GameWindowInventory,
         self.loading_spinner_angle = 0.0
         self.loading_spinner_speed = 180.0
 
+        self.game_over = False
+        self.death_sequence_timer = 0.0
+
     def load_settings(self):
         config_file = get_config_path()
         if os.path.exists(config_file):
@@ -262,7 +280,7 @@ class GameWindow(arcade.View, GameWindowRendering, GameWindowInventory,
         for x, y in self.dungeon_map.exit_door_positions:
             if 0 <= x < self.dungeon_map.map_width and 0 <= y < self.dungeon_map.map_height:
                 if self.dungeon_map.exit_pos and (x, y) == self.dungeon_map.exit_pos:
-                    # Restore exit tile if it was the exit
+                    # Восстановить плитку выхода, если это был выход
                     self.dungeon_map.map_data[y][x] = 3
                 elif self.dungeon_map.get_tile_value(x, y) != 3:
                     self.dungeon_map.map_data[y][x] = 0  # Делаем полом
@@ -272,7 +290,7 @@ class GameWindow(arcade.View, GameWindowRendering, GameWindowInventory,
         self.dungeon_map.exit_door_closed = False
         self.update_visibility()
         
-        # Red Square Exit Portal will be drawn in on_draw based on exit_door_closed state
+        # Красный квадрат портала выхода будет отрисован в on_draw на основе состояния exit_door_closed
         
         # Визуальные и звуковые эффекты открытия прохода
         self.trigger_passage_opening_effects()
@@ -303,8 +321,10 @@ class GameWindow(arcade.View, GameWindowRendering, GameWindowInventory,
 
 
     def setup_game(self):
+        self.move_hold = {"up": False, "down": False, "left": False, "right": False}
+        self.is_running = False
         try:
-            # Capture inventory from previous level
+            # Захват инвентаря с предыдущего уровня
             old_inventory = []
             if hasattr(self, 'player') and self.player:
                 old_inventory = self.player.inventory
@@ -316,41 +336,44 @@ class GameWindow(arcade.View, GameWindowRendering, GameWindowInventory,
             payload = self.map_payload
             if not payload:
                 import random
-                # Generate a unique ID for this dungeon generation
+                # Генерация уникального ID для генерации этого подземелья
                 unique_id = str(uuid.uuid4())
                 self.last_seed = unique_id
-                # Use the unique ID to generate a deterministic integer seed
+                # Использование уникального ID для генерации детерминированного целочисленного сида
                 seed = int(uuid.UUID(unique_id).int & (1<<64)-1)
                 
                 print(f"Starting map generation with Unique ID: {unique_id} (Seed: {seed})")
                 
-                # Force bottom_left spawn as per requirement
+                # Принудительный спавн в левом нижнем углу согласно требованиям
                 self.spawn_corner = "bottom_left"
                     
                 payload = generate_and_store_map(
                     map_width, map_height, game_cfg, self.spawn_corner, map_name=self.map_name, seed=seed)
                 
-                # Log dungeon generation
+                # Логирование генерации подземелья
                 logger = GameLogger()
                 rooms_count = len(payload.get("rooms", []))
                 corridors_count = len(payload.get("corridor_tiles", []))
-                # Player/Mage pos will be logged after placement
+                # Позиции игрока/мага будут записаны после размещения
                 logger.log_dungeon_generation(seed, rooms_count, corridors_count, "Pending", "Pending", unique_id=unique_id)
 
             self._apply_map_payload(payload, game_cfg)
             self.map_payload = None
             
-            # Reset exit sprite
+            # Сброс спрайта выхода
             self.exit_sprite = None
 
-            # Explosives lists
+            # Списки взрывчатки
             self.explosives_list = arcade.SpriteList()
             self.explosions_list = arcade.SpriteList()
 
-            # Restore inventory
+            # Восстановление инвентаря
             if hasattr(self, 'player') and self.player:
                 self.player.inventory = old_inventory
                 self.apply_inventory_effects()
+            
+            self.game_over = False
+            self.death_sequence_timer = 0.0
             
         except Exception as e:
             # print(f"Ошибка при генерации карты: {e}")
@@ -382,6 +405,9 @@ class GameWindow(arcade.View, GameWindowRendering, GameWindowInventory,
                 self.move_anim_time = 0.0
                 self.place_player()
                 self.update_visibility()
+
+                self.game_over = False
+                self.death_sequence_timer = 0.0
 
                 if self.camera is None and hasattr(self, 'window') and self.window:
                     self.camera = arcade_camera.Camera2D()
@@ -423,7 +449,7 @@ class GameWindow(arcade.View, GameWindowRendering, GameWindowInventory,
         if self.player and hasattr(self.player, "draw_pos"):
             self.move_anim_start = list(self.player.draw_pos)
             self.move_anim_target = list(self.player.draw_pos)
-        # Easy difficulty - no save points
+        # Легкая сложность - без точек сохранения
         self.save_point_pos = None
 
         self.place_player()
@@ -486,8 +512,8 @@ class GameWindow(arcade.View, GameWindowRendering, GameWindowInventory,
         force_bottom_left = getattr(self, "spawn_corner", None) == "bottom_left"
         
         if force_bottom_left:
-            # Simple scan from bottom-left (2, 2)
-            # Scan diagonals from bottom-left corner
+            # Простое сканирование с нижнего левого угла (2, 2)
+            # Сканирование диагоналей от нижнего левого угла
             max_dim = max(self.dungeon_map.map_width, self.dungeon_map.map_height)
             for r in range(max_dim):
                 for i in range(r + 1):
@@ -660,20 +686,20 @@ class GameWindow(arcade.View, GameWindowRendering, GameWindowInventory,
     
     def find_random_corridor_spawn(self, exclude_borders_margin=0):
         """
-        Finds a valid spawn position in corridors.
+        Находит валидную точку спавна в коридорах.
         
         Args:
-            exclude_borders_margin (int): Margin from map borders to exclude.
+            exclude_borders_margin (int): Отступ от границ карты, который нужно исключить.
             
-        Algorithm:
-        1. Collects all corridor tiles.
-        2. Filters candidates based on:
-           - Margin from borders.
-           - Walkability (must be floor).
-           - Not occupied by other entities (player, bosses, etc).
-        3. Computes reachable tiles from player using BFS to ensure accessibility.
-        4. Selects a random reachable candidate.
-        5. Fallback: returns closest valid candidate if none are reachable.
+        Алгоритм:
+        1. Собирает все тайлы коридоров.
+        2. Фильтрует кандидатов на основе:
+           - Отступа от границ.
+           - Проходимости (должен быть пол).
+           - Отсутствия других сущностей (игрок, боссы и т.д.).
+        3. Вычисляет достижимые тайлы от игрока с помощью BFS для гарантии доступности.
+        4. Выбирает случайного достижимого кандидата.
+        5. Fallback: возвращает ближайшего валидного кандидата, если достижимых нет.
         """
         if not self.dungeon_map:
             return None
@@ -738,20 +764,20 @@ class GameWindow(arcade.View, GameWindowRendering, GameWindowInventory,
         if not self.dungeon_map:
             return
             
-        # 1. Get valid spawn coordinates (cached)
+        # 1. Получение валидных координат спавна (кешировано)
         valid_coords = self.dungeon_map.get_valid_spawn_coords()
         if not valid_coords:
-             # Fallback
+             # Запасной вариант
              self.merchant = MerchantNPC(self.tile_size, self.find_spawn_pos())
              return
 
         target = None
         player_pos = self.player.pos if self.player else (0, 0)
         
-        # 2. Try to find a valid spot with distance constraints
-        # Optimization: Filter valid_coords for distance
+        # 2. Попытка найти валидное место с ограничениями по дистанции
+        # Оптимизация: Фильтрация valid_coords по дистанции
         
-        # Sample if too many to avoid lag
+        # Выборка, если слишком много, чтобы избежать лагов
         sample_pool = valid_coords
         if len(valid_coords) > 500:
              sample_pool = random.sample(valid_coords, 500)
@@ -772,7 +798,7 @@ class GameWindow(arcade.View, GameWindowRendering, GameWindowInventory,
             target = random.choice(candidates)
                 
         if target is None:
-            # Fallback to corridor
+            # Если не удалось найти рядом, запасной вариант - случайный коридор
             target = self.find_random_corridor_spawn()
             if target is None:
                  target = self.find_spawn_pos()
@@ -781,98 +807,93 @@ class GameWindow(arcade.View, GameWindowRendering, GameWindowInventory,
 
     def place_mages(self):
         """
-        Spawns mages near player (min/max distance) but not visible.
+        Спавнит уникального мага один раз за сессию в коридоре.
         """
         if not self.dungeon_map:
             return
         
         self.mages = []
-        game_cfg = ProjectSettings.Game
-        logger = GameLogger()
         
-        player_pos = self.player.pos if self.player else (0, 0)
-        min_dist = 10
-        max_dist = 25
-        
-        count = 0
-        for _ in range(game_cfg.MAX_MAGES):
-            if random.random() < game_cfg.MAGE_SPAWN_CHANCE:
-                target = None
-                # Try to find a valid position near player but not too close
-                for _ in range(20):
-                    angle = random.uniform(0, 2 * math.pi)
-                    dist = random.uniform(min_dist, max_dist)
-                    tx = int(player_pos[0] + math.cos(angle) * dist)
-                    ty = int(player_pos[1] + math.sin(angle) * dist)
-                    
-                    if (0 <= tx < self.dungeon_map.map_width and 
-                        0 <= ty < self.dungeon_map.map_height and
-                        self.dungeon_map.is_walkable(tx, ty)):
-                        
-                        # Check reachability
-                        if self._is_reachable(player_pos, (tx, ty)):
-                            # Check visibility (Line of Sight)
-                            # If ray reaches target without hitting wall, it's visible.
-                            # cast_ray returns all tiles along the ray until a wall.
-                            # If target is in the result, it is visible.
-                            visible_set = self.cast_ray(player_pos[0], player_pos[1], tx, ty)
-                            if (tx, ty) not in visible_set:
-                                target = (tx, ty)
-                                break
-                
-                # If failed to find near, fallback to random corridor
-                if not target:
-                    margin = max(5, int(min(self.dungeon_map.map_width, self.dungeon_map.map_height) * 0.1))
-                    # Try to find a non-visible corridor spot
-                    for _ in range(10):
-                        candidate = self.find_random_corridor_spawn(exclude_borders_margin=margin)
-                        if candidate:
-                            is_vis = False
-                            if hasattr(self, 'visible_tiles') and self.visible_tiles:
-                                if candidate in self.visible_tiles:
-                                    is_vis = True
-                            if not is_vis:
-                                target = candidate
-                                break
-                    
-                    if not target:
-                         target = self.find_random_corridor_spawn(exclude_borders_margin=margin)
+        # Проверка, был ли маг уже создан в этой сессии
+        if self.mage_spawned:
+            return
 
-                if target:
-                    mage = MageNPC(self.tile_size, target)
-                    
-                    # Setup spawn animation
-                    if mage and mage.sprite:
-                        mage.alpha = 0
-                        try:
-                            mage.sprite.alpha = 0
-                        except Exception:
-                            pass
-                        
-                        tx, ty = target
-                        px = self.player.draw_pos[0] if self.player else (tx * self.tile_size + self.tile_size // 2)
-                        py = self.player.draw_pos[1] if self.player else (ty * self.tile_size + self.tile_size // 2)
-                        
-                        mage.start_draw_pos = [px, py]
-                        mage.target_draw_pos = [tx * self.tile_size + self.tile_size // 2,
-                                                ty * self.tile_size + self.tile_size // 2]
-                        mage.spawn_anim_active = True
-                        
-                    self.mages.append(mage)
-                    dist_to_player = math.sqrt((target[0]-player_pos[0])**2 + (target[1]-player_pos[1])**2)
-                    logger.log(f"Mage spawned at {target} (Dist: {dist_to_player:.1f})")
-                    count += 1
+        # Найти случайную позицию в коридоре
+        if not self.dungeon_map.corridor_tiles:
+            return
+
+        import random
+        # Преобразуем set в list для выбора
+        corridor_list = list(self.dungeon_map.corridor_tiles)
+        if not corridor_list:
+            return
+
+        # Пытаемся найти подходящее место рядом с игроком (для немедленного следования)
+        target = None
+        px, py = self.player.pos if self.player else (0, 0)
+        
+        # Сортируем коридоры по расстоянию к игроку
+        corridor_list.sort(key=lambda p: (p[0]-px)**2 + (p[1]-py)**2)
+        
+        # Ищем первый подходящий (не вплотную, но близко: 3-6 тайлов)
+        min_dist_sq = 3*3
+        max_dist_sq = 6*6
+        
+        for cand in corridor_list:
+             d2 = (cand[0]-px)**2 + (cand[1]-py)**2
+             if min_dist_sq <= d2 <= max_dist_sq:
+                 if self.dungeon_map.is_walkable(cand[0], cand[1]):
+                     target = cand
+                     break
+        
+        # Если не нашли в идеальном диапазоне, берем ближайший доступный (> 2 тайлов)
+        if not target:
+             for cand in corridor_list:
+                 d2 = (cand[0]-px)**2 + (cand[1]-py)**2
+                 if d2 > 2*2:
+                     if self.dungeon_map.is_walkable(cand[0], cand[1]):
+                         target = cand
+                         break
+        
+        if not target:
+            target = random.choice(corridor_list)
+
+        # Создаем мага с параметрами для следования
+        # Можно настроить скорость здесь, если нужно (по умолчанию в классе)
+        mage = MageNPC(self.tile_size, target)
+        
+        # Настройка анимации спавна
+        if mage and mage.sprite:
+            mage.alpha = 0
+            try:
+                mage.sprite.alpha = 0
+            except Exception:
+                pass
+            
+            tx, ty = target
+            mage.start_draw_pos = [tx * self.tile_size + self.tile_size // 2,
+                                    ty * self.tile_size + self.tile_size // 2] # Начинаем сразу на месте
+            mage.target_draw_pos = mage.start_draw_pos
+            mage.spawn_anim_active = True
+            
+        self.mages.append(mage)
+        
+        # Отмечаем, что маг был создан
+        self.mage_spawned = True
+        
+        logger = GameLogger()
+        logger.log(f"Unique Mage spawned at {target}")
         
     def place_ghosts(self):
-        """Places ghosts in random locations using GhostManager"""
+        """Размещает призраков в случайных местах с помощью GhostManager"""
         if not self.dungeon_map:
             return
             
-        # Use GhostManager to spawn ghosts in corridors
+        # Использование GhostManager для спавна призраков в коридорах
         self.ghost_manager.ghosts.clear()
         self.ghost_manager.ghost_records.clear()
         
-        count = random.randint(3, 5) + (self.level // 2) # Scale with level
+        count = random.randint(3, 5) + (self.level // 2) # Масштабирование с уровнем
         self.ghost_manager.spawn_ghosts(self.dungeon_map, count, self.level)
 
     def place_player(self):
@@ -909,7 +930,7 @@ class GameWindow(arcade.View, GameWindowRendering, GameWindowInventory,
             spawn_room_id = self.dungeon_map.get_room_id(
                 self.player.pos[0], self.player.pos[1])
 
-        # Priority 1: Use designated exit room for boss
+        # Приоритет 1: Использование назначенной комнаты выхода для босса
         far_room_idx = None
         boss_x, boss_y = None, None
         
@@ -1038,7 +1059,7 @@ class GameWindow(arcade.View, GameWindowRendering, GameWindowInventory,
         # Тест распределения коридорных спавнов мага (диагностика)
         # Диагностика коридорного спавна удалена для предотвращения задержек генерации
         
-        # Disable mob spawning to ensure only one boss exists per level as requested
+        # Отключен спавн мобов, чтобы гарантировать наличие только одного босса на уровень
         # for idx in goblin_rooms:
         #     spawn_in_room(idx, "Giant Goblin")
         # for idx in viking_rooms:
@@ -1060,7 +1081,7 @@ class GameWindow(arcade.View, GameWindowRendering, GameWindowInventory,
             sprite.center_y = ry * self.tile_size + self.tile_size // 2
             sprite.change_x = random.uniform(-1.5, 1.5)
             sprite.change_y = random.uniform(-1.5, 1.5)
-            # Add grid position for culling
+            # Добавление позиции сетки для отсечения
             sprite.grid_x = rx
             sprite.grid_y = ry
             self.ambient_sprites.append(sprite)
@@ -1089,10 +1110,10 @@ class GameWindow(arcade.View, GameWindowRendering, GameWindowInventory,
         
         print(f"--- Chest Placement Statistics ---")
         
-        # Get initially occupied positions
+        # Получение изначально занятых позиций
         occupied = self._get_occupied_grid_positions()
         
-        # Helper function to place a chest in a specific room
+        # Вспомогательная функция для размещения сундука в конкретной комнате
         def place_chest_in_room(room):
             if isinstance(room, dict):
                 x1, y1, x2, y2 = room["x1"], room["y1"], room["x2"], room["y2"]
@@ -1100,12 +1121,12 @@ class GameWindow(arcade.View, GameWindowRendering, GameWindowInventory,
                 x, y, w, h = room
                 x1, y1, x2, y2 = x, y, x + w, y + h
             
-            # Try to find a valid spot
+            # Попытка найти подходящее место
             for _ in range(20):
                 cx = random.randint(x1 + 1, x2 - 2)
                 cy = random.randint(y1 + 1, y2 - 2)
                 
-                # Check if occupied
+                # Проверка занятости клетки
                 if (cx, cy) not in occupied and self.dungeon_map.is_walkable(cx, cy):
                     s = arcade.Sprite(closed_path)
                     if s.texture and s.texture.width:
@@ -1118,13 +1139,13 @@ class GameWindow(arcade.View, GameWindowRendering, GameWindowInventory,
                     return True
             return False
 
-        # 1. Ensure at least one chest per room
+        # 1. Гарантируем наличие хотя бы одного сундука в каждой комнате
         for i, room in enumerate(rooms):
             if place_chest_in_room(room):
                 chest_count += 1
         
-        # 2. Place additional chests (lots of them)
-        # Target: ~5 chests per room on average
+        # 2. Размещаем дополнительные сундуки (много)
+        # Цель: ~5 сундуков на комнату в среднем
         target_total = len(rooms) * 5
         attempts = 0
         while chest_count < target_total and attempts < 100:
@@ -1147,114 +1168,6 @@ class GameWindow(arcade.View, GameWindowRendering, GameWindowInventory,
             print(f"Failed to save stats: {e}")
 
 
-    def apply_inventory_effects(self):
-        if not self.player:
-            return
-
-        # Reset to base stats
-        self.player.move_speed = self.player.base_move_speed
-        self.player.attack_duration = self.player.base_attack_duration
-        self.player.health_regen_amount = self.player.base_health_regen_amount
-        self.player.max_health = self.player.base_max_health
-        self.player.has_double_strike = False
-        self.player.bonus_damage_percent = 0.0
-        self.player.bonus_damage_flat = 0
-        self.player.dodge_chance = 0.0
-        
-        # Accumulators (Max logic)
-        max_bonus_dmg_pct = 0.0
-        max_bonus_dmg_flat = 0
-        max_move_pct = 0.0
-        max_atk_speed_pct = 0.0
-        max_regen_pct = 0.0
-        max_dodge = 0.0
-        
-        for item in self.inventory:
-            iid = item.get("icon_id")
-            effect = ITEM_EFFECTS.get(iid)
-            if not effect:
-                continue
-            
-            # Apply max logic for non-stacking bonuses
-            max_bonus_dmg_pct = max(max_bonus_dmg_pct, effect.get("dmg_pct", 0))
-            max_bonus_dmg_flat = max(max_bonus_dmg_flat, effect.get("dmg_flat", 0))
-            max_move_pct = max(max_move_pct, effect.get("move_pct", 0))
-            max_atk_speed_pct = max(max_atk_speed_pct, effect.get("atk_speed_pct", 0))
-            max_regen_pct = max(max_regen_pct, effect.get("regen_pct", 0))
-            max_dodge = max(max_dodge, effect.get("dodge", 0))
-            
-            if effect.get("special") == "double_strike":
-                self.player.has_double_strike = True
-        
-        self.player.bonus_damage_percent = max_bonus_dmg_pct
-        self.player.bonus_damage_flat = max_bonus_dmg_flat
-        self.player.dodge_chance = max_dodge
-
-        # Finalize
-        self.player.move_speed *= max(0.1, 1.0 + max_move_pct)
-        # Attack speed increases means duration decreases.
-        self.player.attack_duration = self.player.base_attack_duration / max(0.1, 1.0 + max_atk_speed_pct)
-        
-        self.player.health_regen_amount = int(self.player.base_health_regen_amount * max(1.0, 1.0 + max_regen_pct))
-
-    def get_item_description(self, icon_id):
-        # Check if it has an effect description first
-        if icon_id in ITEM_EFFECTS and "desc" in ITEM_EFFECTS[icon_id]:
-            return ITEM_EFFECTS[icon_id]["desc"]
-
-        m = {
-            1: None,
-            2: "Талисман урон +5%",
-            3: "Магический листок +2% восстановления здоровья",
-            4: "Талисман скорость перезарядки удара +5%",
-            5: "Оторванная конечность",
-            6: "Оторванная конечность",
-            7: None,
-            8: "Часть скелета",
-            9: "Челюсть",
-            10: "Оторванные глаза",
-            11: None,
-            12: None,
-            13: "Перчатка погибшего воина +10% урона +2% скорости",
-            14: "Волшебный браслет скорость перезарядки удара +2%",
-            15: "Волшебные сапоги +10% скорости передвижения",
-            16: "Ботинки нищего крестьянина",
-            17: "Талисман позволяющий нанести двойной удар",
-            18: "Одежда нищего крестьянина",
-            19: "Броня из шкуры дракона +7% промах от ударов",
-            20: "Броня мумии +5% промах от ударов",
-            21: "Шлем викинга +5% промах от ударов",
-            22: None,
-            23: "Щит +17% промах от ударов",
-            24: "Топор урон +5",
-            25: "Секира урон +6% -2% скорости передвижения",
-            26: "Молот урон +7% -5% скорости передвижения",
-            27: "Сломанный лук",
-            28: "Кочан стрел",
-            29: "Стрела",
-            30: "Сабля пирата +5 урона",
-            31: None,
-            32: "Клинок как у ассасина +5% урона +5% скорости",
-            33: "Факел",
-            34: None,
-            35: None,
-            36: None,
-            37: None,
-            38: "Зубы",
-            39: "Кости",
-            40: "Странные вкусности",
-            41: "Деньги",
-            42: "Гирлянда",
-            43: "Кусок мяса +20% здоровья",
-            44: "Кусок мяса +20% здоровья",
-            45: "Зелье елексира +45% здоровья",
-            46: "Зелья урона на 30 секунд +25% урона",
-            47: "Опасное зелье",
-            48: None,
-            49: "Бомба",
-            50: "Тратил с фетилем",
-        }
-        return m.get(icon_id)
 
     def is_blocking(self, x, y):
         if not self.dungeon_map:
@@ -1375,7 +1288,7 @@ class GameWindow(arcade.View, GameWindowRendering, GameWindowInventory,
         return visible
 
     def _setup_difficulty_visibility(self):
-        # Easy difficulty settings
+        # Настройки легкой сложности
         self.view_radius = 5
         self.use_fov = True
 
@@ -1526,6 +1439,7 @@ class GameWindow(arcade.View, GameWindowRendering, GameWindowInventory,
                 "save_point_pos": self.save_point_pos,
                 "save_point_used": self.save_point_used,
                 "mages": [tuple(m.pos) for m in self.mages if m],
+                "mage_spawned": self.mage_spawned,
                 "last_seed": getattr(self, "last_seed", "N/A"),
             }
             save_data = {
@@ -1596,6 +1510,8 @@ class GameWindow(arcade.View, GameWindowRendering, GameWindowInventory,
                             game_data.get("save_point_pos")) if game_data.get("save_point_pos") else None
                         self.save_point_used = game_data.get(
                             "save_point_used", False)
+                        self.mage_spawned = game_data.get(
+                            "mage_spawned", False)
                         self.last_seed = game_data.get("last_seed", "N/A")
                         # Инициализация боссов при загрузке
                         self.bosses = []
@@ -1604,7 +1520,7 @@ class GameWindow(arcade.View, GameWindowRendering, GameWindowInventory,
                         # чтобы он гарантированно появлялся у спавна при загрузке
                         self.place_sage(tuple(player_pos))
                         
-                        # Load Mages
+                        # Загрузка магов
                         self.mages = []
                         mages_data = game_data.get("mages", [])
                         for pos in mages_data:
@@ -1639,7 +1555,7 @@ class GameWindow(arcade.View, GameWindowRendering, GameWindowInventory,
         )
         main_box.add(title_label)
         
-        # Info Panel Data
+        # Данные информационной панели
         if self.dungeon_map:
             info_text = (f"Уровень: {self.level}\n"
                          f"Размер: {self.dungeon_map.map_width}x{self.dungeon_map.map_height}\n"
@@ -1657,7 +1573,7 @@ class GameWindow(arcade.View, GameWindowRendering, GameWindowInventory,
             )
             main_box.add(info_label)
             
-            # Save info to log
+            # Сохранение информации в лог
             logger = GameLogger()
             logger.log(f"Info Panel Opened: {info_text.replace(chr(10), ', ')}")
 
@@ -1689,7 +1605,7 @@ class GameWindow(arcade.View, GameWindowRendering, GameWindowInventory,
         save_button.on_click = self.on_save_game_click
         buttons_box.add(save_button)
 
-        # Cheats Button
+        # Кнопка читов (Только если включена)
         if ProjectSettings.CHEATS_ENABLED:
             cheats_button = arcade.gui.UIFlatButton(
                 text="Читы",
@@ -1716,7 +1632,7 @@ class GameWindow(arcade.View, GameWindowRendering, GameWindowInventory,
             cheats_button.on_click = self.on_cheats_click
             buttons_box.add(cheats_button)
 
-        # Restart with Cheats Button
+        # Кнопка перезапуска с читами
         restart_cheats_button = arcade.gui.UIFlatButton(
             text="Перезапуск с читами",
             width=settings.SETTINGS_PANEL_WIDTH - 20,
@@ -1787,29 +1703,25 @@ class GameWindow(arcade.View, GameWindowRendering, GameWindowInventory,
         import subprocess
         import sys
         
-        # Get the root directory (where run.py is located)
+        # Получение корневой директории (где находится run.py)
         root_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
         run_script = os.path.join(root_dir, "run.py")
         
-        # Determine if music should be disabled (preserve flag)
+        # Определение, должна ли быть отключена музыка (сохранение флага)
         args = [sys.executable, run_script, "--wc"]
         if not ProjectSettings.MUSIC_ENABLED:
             args.append("--wom")
             
-        # Launch new process
+        # Запуск нового процесса
         subprocess.Popen(args)
         
-        # Close current window/process
+        # Закрытие текущего окна/процесса
         arcade.close_window()
 
     def on_cheats_click(self, event):
-        if ProjectSettings.CHEATS_ENABLED:
-            self.setup_cheats_menu()
+        self.setup_cheats_menu()
 
     def setup_cheats_menu(self):
-        if not ProjectSettings.CHEATS_ENABLED:
-            return
-            
         self.pause_manager.clear()
         settings = ProjectSettings.Settings
         
@@ -1875,7 +1787,16 @@ class GameWindow(arcade.View, GameWindowRendering, GameWindowInventory,
         kill_btn.on_click = self.on_cheat_kill_all
         buttons_box.add(kill_btn)
         
-        # Back
+        shield_text = f"КД щита: {self.shield_cooldown:.1f} сек"
+        shield_btn = arcade.gui.UIFlatButton(
+            text=shield_text,
+            width=settings.SETTINGS_PANEL_WIDTH - 20,
+            height=settings.BUTTON_HEIGHT
+        )
+        shield_btn.on_click = self.on_cheat_cycle_shield_cooldown
+        buttons_box.add(shield_btn)
+
+        # Назад
         back_btn = arcade.gui.UIFlatButton(
             text="Назад",
             width=settings.SETTINGS_PANEL_WIDTH - 20,
@@ -1893,6 +1814,16 @@ class GameWindow(arcade.View, GameWindowRendering, GameWindowInventory,
             anchor_y="center_y"
         )
         self.pause_manager.add(anchor_layout)
+
+    def on_cheat_cycle_shield_cooldown(self, event):
+        values = [5.0, 3.0, 1.0]
+        current = self.shield_cooldown
+        if current not in values:
+            self.shield_cooldown = values[0]
+        else:
+            index = values.index(current)
+            self.shield_cooldown = values[(index + 1) % len(values)]
+        self.setup_cheats_menu()
 
     def on_cheat_level_20(self, event):
         self.level = 20
@@ -1936,11 +1867,11 @@ class GameWindow(arcade.View, GameWindowRendering, GameWindowInventory,
                      for x in range(len(self.explored_grid[0])):
                          self.explored_grid[y][x] = True
         
-        # Refresh minimap/render if needed, but next draw call will handle it
+        # Обновление миникарты/рендера при необходимости, но следующий вызов отрисовки обработает это
         
     def on_cheat_kill_all(self, event):
         self.cheats_one_hit_kill = not getattr(self, 'cheats_one_hit_kill', False)
-        self.setup_cheats_menu() # Refresh button text
+        self.setup_cheats_menu() # Обновление текста кнопки
 
     def on_return_to_menu_click(self, event):
         self.stop_game_music()
@@ -2035,16 +1966,16 @@ class GameWindow(arcade.View, GameWindowRendering, GameWindowInventory,
             self.camera.use()
             self.draw_map()  # Здесь рисуются стены, пол, игроки и боссы, Sage, Merchant, Mages
             
-            # Draw Explosives and Explosions
+            # Отрисовка взрывчатки и взрывов
             if hasattr(self, 'explosives_list') and self.explosives_list:
                 self.explosives_list.draw()
             if hasattr(self, 'explosions_list') and self.explosions_list:
                 self.explosions_list.draw()
 
-            # Draw exit portal (Red Square)
+            # Отрисовка портала выхода (Красный квадрат)
             if self.dungeon_map and not self.dungeon_map.exit_door_closed and self.dungeon_map.exit_pos:
                 ex, ey = self.dungeon_map.exit_pos
-                # Use draw_lrbt_rectangle_filled as draw_rectangle_filled might be missing
+                # Используем draw_lrbt_rectangle_filled, так как draw_rectangle_filled может отсутствовать
                 arcade.draw_lrbt_rectangle_filled(
                     ex * self.tile_size,
                     (ex + 1) * self.tile_size,
@@ -2053,9 +1984,19 @@ class GameWindow(arcade.View, GameWindowRendering, GameWindowInventory,
                     arcade.color.RED
                 )
             
-            # Draw Passage Opening Effect
+            # Отрисовка эффекта открытия прохода
             if hasattr(self, 'passage_opening_effect') and self.passage_opening_effect and self.passage_opening_effect.get('active'):
                 self.draw_passage_opening_effect()
+
+            # Отрисовка умирающих боссов
+            if self.dying_bosses:
+                for boss in self.dying_bosses:
+                    if hasattr(boss, 'sprite_list') and boss.sprite_list:
+                         boss.sprite_list.draw()
+                    elif hasattr(boss, 'sprite'):
+                         boss.sprite.draw()
+                    if hasattr(boss, 'death_particles'):
+                         boss.death_particles.draw()
 
         # Возвращаемся к UI камере для отрисовки интерфейса
         self.ui_camera.use()
@@ -2084,6 +2025,23 @@ class GameWindow(arcade.View, GameWindowRendering, GameWindowInventory,
                     self.window.height if self.window else 0,
                     (255, 0, 0, alpha)
                 )
+        
+        # Отрисовка интерфейса щита
+        if self.shield_active:
+             arcade.draw_text(f"ЩИТ АКТИВЕН: {self.shield_timer:.1f}", 
+                              self.window.width // 2, 
+                              self.window.height - 100, 
+                              arcade.color.CYAN, 
+                              20, 
+                              anchor_x="center")
+        elif self.shield_cooldown_timer > 0:
+             arcade.draw_text(f"ПЕРЕЗАРЯДКА ЩИТА: {self.shield_cooldown_timer:.1f}", 
+                              self.window.width // 2, 
+                              self.window.height - 100, 
+                              arcade.color.ORANGE, 
+                              20, 
+                              anchor_x="center")
+
         if self.show_pause_menu:
             self.pause_manager.draw()
         elif self.current_story_line or (self.story_lines and len(self.story_lines) > 0):
@@ -2098,11 +2056,10 @@ class GameWindow(arcade.View, GameWindowRendering, GameWindowInventory,
             if self.story_manager._enabled:
                 self.story_manager.disable()
             
-            # Active Item HUD
+            # HUD активного предмета
             if self.player and hasattr(self.player, 'get_selected_active_item'):
                 key, count = self.player.get_selected_active_item()
-                # Draw background for HUD
-                # arcade.draw_rectangle_filled(120, 50, 220, 60, (0, 0, 0, 150))
+                # Рисуем фон для HUD
                 arcade.draw_lrbt_rectangle_filled(10, 230, 20, 80, (0, 0, 0, 150))
                 
                 color = arcade.color.YELLOW
@@ -2111,31 +2068,27 @@ class GameWindow(arcade.View, GameWindowRendering, GameWindowInventory,
                 
                 item_names = {"bomb": "БОМБА", "dynamite": "ДИНАМИТ", "medkit": "МЯСО"}
                 name_ru = item_names.get(key, key.upper())
+                
+                # Явно рисуем ТОЛЬКО текст, чтобы избежать путаницы с иконками
                 arcade.draw_text(f"Активный: {name_ru} x{count}", 20, 60, color, 14, bold=True)
                 
-                # Draw Active Item Icon
-                icon_map = {"bomb": 49, "dynamite": 50, "medkit": 43}
-                icon_id = icon_map.get(key)
-                if icon_id and icon_id in self.item_textures:
-                    tex = self.item_textures[icon_id]
-                    if tex:
-                        # Draw icon on the right side of the HUD panel
-                        sp = arcade.Sprite()
-                        sp.texture = tex
-                        sp.center_x = 190
-                        sp.center_y = 50
-                        sp.width = 40
-                        sp.height = 40
-                        
-                        # Draw using SpriteList
-                        sp_list = arcade.SpriteList()
-                        sp_list.append(sp)
-                        sp_list.draw()
-
                 arcade.draw_text("[Z]Сменить [F]Исп. [R]Взорвать", 20, 35, arcade.color.WHITE, 10)
 
             self.draw_player_health()
             self.draw_death_message()
+
+        # Наложение вспышки экрана
+        if self.screen_flash_timer > 0 and self.screen_flash_duration > 0:
+             alpha = int(255 * (self.screen_flash_timer / self.screen_flash_duration))
+             alpha = max(0, min(255, alpha))
+             # Убеждаемся, что цвет имеет RGB компоненты
+             c = self.screen_flash_color
+             if len(c) == 4:
+                 c = c[:3]
+             arcade.draw_lrbt_rectangle_filled(
+                 0, self.window.width, 0, self.window.height,
+                 (*c, alpha)
+             )
 
         if self.loading_overlay_active and self.window:
             w = self.window.width
@@ -2167,6 +2120,27 @@ class GameWindow(arcade.View, GameWindowRendering, GameWindowInventory,
         # Отрисовка диалогового окна мага (поверх всего)
         if self.mage_dialog:
             self.mage_dialog.draw()
+        
+        # Отрисовка оверлея окончания игры
+        if self.game_over:
+             arcade.draw_lrbt_rectangle_filled(
+                0,
+                self.window.width if self.window else 0,
+                0,
+                self.window.height if self.window else 0,
+                (0, 0, 0, min(255, int(self.death_sequence_timer * 100)))
+            )
+             if self.death_sequence_timer > 1.0:
+                arcade.draw_text(
+                    "ПОРАЖЕНИЕ",
+                    self.window.width // 2,
+                    self.window.height // 2,
+                    arcade.color.RED,
+                    64,
+                    anchor_x="center",
+                    anchor_y="center",
+                    bold=True
+                )
 
     def draw_passage_opening_effect(self):
         """Рисует эффект открытия прохода"""
@@ -2182,20 +2156,27 @@ class GameWindow(arcade.View, GameWindowRendering, GameWindowInventory,
 
         # Создаем новые частицы
         if len(effect['particles']) < 100:
-            for _ in range(5):
-                pos = random.choice(self.dungeon_map.exit_door_positions)
-                x = (pos[0] + 0.5) * self.tile_size
-                y = (pos[1] + 0.5) * self.tile_size
-                particle = {
-                    'x': x,
-                    'y': y,
-                    'dx': random.uniform(-2, 2),
-                    'dy': random.uniform(3, 7),
-                    'size': random.uniform(3, 8),
-                    'color': random.choice([arcade.color.WHITE, arcade.color.YELLOW, arcade.color.ORANGE]),
-                    'alpha': 255
-                }
-                effect['particles'].append(particle)
+            positions = []
+            if hasattr(self.dungeon_map, 'exit_door_positions') and self.dungeon_map.exit_door_positions:
+                positions = self.dungeon_map.exit_door_positions
+            elif hasattr(self.dungeon_map, 'exit_pos') and self.dungeon_map.exit_pos:
+                positions = [self.dungeon_map.exit_pos]
+
+            if positions:
+                for _ in range(5):
+                    pos = random.choice(positions)
+                    x = (pos[0] + 0.5) * self.tile_size
+                    y = (pos[1] + 0.5) * self.tile_size
+                    particle = {
+                        'x': x,
+                        'y': y,
+                        'dx': random.uniform(-2, 2),
+                        'dy': random.uniform(3, 7),
+                        'size': random.uniform(3, 8),
+                        'color': random.choice([arcade.color.WHITE, arcade.color.YELLOW, arcade.color.ORANGE]),
+                        'alpha': 255
+                    }
+                    effect['particles'].append(particle)
 
         # Обновляем и рисуем частицы
         for p in effect['particles']:
@@ -2203,14 +2184,44 @@ class GameWindow(arcade.View, GameWindowRendering, GameWindowInventory,
             p['y'] += p['dy']
             p['alpha'] -= 5
             if p['alpha'] > 0:
-                arcade.draw_circle_filled(p['x'], p['y'], p['size'], (*p['color'], p['alpha']))
+                # Убеждаемся, что берем только RGB от объекта цвета (он может быть RGBA)
+                arcade.draw_circle_filled(p['x'], p['y'], p['size'], (*p['color'][:3], p['alpha']))
 
         # Удаляем старые частицы
         effect['particles'] = [p for p in effect['particles'] if p['alpha'] > 0]
 
 
     def on_update(self, delta_time):
-        # Update Explosives
+        if self.game_over:
+             self.death_sequence_timer += delta_time
+             if self.player:
+                 self.player.update_animation(delta_time)
+             
+             if self.death_sequence_timer >= 4.0:
+                 view = GameOverView(self)
+                 self.window.show_view(view)
+             return
+
+        # Проверка смерти
+        if self.player and self.player.health <= 0:
+            self.game_over = True
+            self.death_sequence_timer = 0.0
+            # Воспроизведение звука смерти
+            try:
+                # Пытаемся найти звук смерти, иначе используем звук удара
+                path = self.find_music_file("player_death.wav")
+                if not path:
+                    path = self.find_music_file("player_hp_down.wav")
+                if not path:
+                    path = self.find_music_file("game_over_voice.mp3")
+                
+                if path:
+                    arcade.play_sound(arcade.load_sound(path), volume=self.sound_volume)
+            except:
+                pass
+            return
+
+        # Обновление взрывчатки
         if hasattr(self, 'explosives_list') and self.explosives_list:
             self.explosives_list.update(delta_time)
             for explosive in self.explosives_list:
@@ -2218,7 +2229,7 @@ class GameWindow(arcade.View, GameWindowRendering, GameWindowInventory,
                     self.create_explosion(explosive.center_x, explosive.center_y, explosive.explosion_radius, explosive.damage)
                     explosive.remove_from_sprite_lists()
 
-        # Update Explosions
+        # Обновление взрывов
         if hasattr(self, 'explosions_list') and self.explosions_list:
             self.explosions_list.update(delta_time)
             
@@ -2227,7 +2238,7 @@ class GameWindow(arcade.View, GameWindowRendering, GameWindowInventory,
         if self.sage:
             self.sage.update(delta_time)
             
-        # Update Mages
+        # Обновление магов
         for mage in self.mages:
             if mage:
                 if self.player:
@@ -2235,73 +2246,73 @@ class GameWindow(arcade.View, GameWindowRendering, GameWindowInventory,
                 else:
                     mage.update(delta_time)
         
-        # Update Bosses
+        # Обновление боссов
         if self.bosses:
             for boss in self.bosses:
                 if boss and boss.visible:
                     if self.player:
                         boss.update(delta_time, self.player.draw_pos, self.dungeon_map)
                         
-                        # Boss Attack Damage Logic
+                        # Логика урона от атаки босса
                         if boss.is_attacking and not boss.damage_dealt:
-                            # Apply damage mid-animation (e.g., > 30% progress)
+                            # Наносим урон в середине анимации (например, > 30% прогресса)
                             if boss.attack_timer > boss.attack_duration * 0.3:
-                                # Distance check again to be fair? Boss class cancels if too far, but we can double check
+                                # Снова проверяем дистанцию для честности? Класс Boss отменяет, если слишком далеко, но можно проверить дважды
                                 dx = boss.sprite.center_x - self.player.draw_pos[0]
                                 dy = boss.sprite.center_y - self.player.draw_pos[1]
                                 dist_sq = dx*dx + dy*dy
-                                hit_range = boss.attack_range * self.tile_size * 1.5 # Generous hit box
+                                hit_range = boss.attack_range * self.tile_size * 1.5 # Щедрый хитбокс
                                 
                                 if dist_sq < hit_range * hit_range:
                                     self.player.take_damage(boss.attack_damage)
                                     boss.damage_dealt = True
                                     self.shake_camera(5.0, 0.2)
                         
-                        # Trigger Boss Music if near boss and attacking/active
-                        # Simple logic: if boss is visible and close, play suspense music.
-                        # But boss music should start when we enter the room or trigger boss.
+                        # Запуск музыки босса, если рядом с боссом и он атакует/активен
+                        # Простая логика: если босс видим и близко, играем тревожную музыку.
+                        # Но музыка босса должна начинаться, когда мы входим в комнату или триггерим босса.
                         # "Определите триггер начала и окончания битвы с боссом"
-                        # Start: When boss sees player (aggro)
-                        # End: When boss dies (handled in handle_boss_death)
+                        # Начало: Когда босс видит игрока (агро)
+                        # Конец: Когда босс умирает (обрабатывается в handle_boss_death)
                         
-                        # Boss doesn't have explicit "aggro" state property exposed easily, but we can check if it's moving towards player or attacking.
-                        # Actually Boss class has `is_attacking` and `is_moving`.
-                        # Let's add a property to Boss or check here.
-                        # If boss is active (moving or attacking), play music.
+                        # У босса нет явно открытого свойства состояния "агро", но мы можем проверить, движется ли он к игроку или атакует.
+                        # На самом деле у класса Boss есть `is_attacking` и `is_moving`.
+                        # Добавим свойство в Boss или проверим здесь.
+                        # Если босс активен (движется или атакует), играем музыку.
                         
                         if (boss.is_moving or boss.is_attacking) and not getattr(self, "boss_music_active", False):
                             self.play_suspense_music()
                             self.boss_music_active = True
                         elif not (boss.is_moving or boss.is_attacking) and getattr(self, "boss_music_active", False):
-                            # Maybe don't stop immediately, wait for death or far distance?
-                            # Requirement says "Start and End of battle".
-                            # Battle starts when boss engages.
-                            # Battle ends when boss dies.
-                            # So we don't stop music if boss just pauses.
+                            # Может не останавливать сразу, ждать смерти или дистанции?
+                            # Требование говорит "Начало и Конец битвы".
+                            # Битва начинается, когда босс вступает в бой.
+                            # Битва заканчивается, когда босс умирает.
+                            # Поэтому мы не останавливаем музыку, если босс просто делает паузу.
                             pass
                                     
                     else:
                         boss.update(delta_time, None, self.dungeon_map)
 
-        # Update Ghosts
+        # Обновление призраков
         if self.ghost_manager:
-            # Calculate viewport for culling
-            # Viewport is centered on camera position
+            # Вычисление вьюпорта для отсечения
+            # Вьюпорт центрирован на позиции камеры
             if self.camera and self.camera.position:
                 cx, cy = self.camera.position
-                # Get window size (assuming default or current)
+                # Получаем размер окна (предполагаем стандартный или текущий)
                 w = self.window.width
                 h = self.window.height
-                # Scale viewport by camera zoom if applicable (camera.scale is not standard in 2.6 Camera2D but check docs if using Camera2D)
-                # Assuming 1:1 scale for now or handling it broadly
+                # Масштабируем вьюпорт по зуму камеры, если применимо (camera.scale не стандартно в 2.6 Camera2D, но проверим документацию, если используется Camera2D)
+                # Пока предполагаем масштаб 1:1 или обрабатываем широко
                 
-                # Define Viewport Rect (left, right, bottom, top)
-                # Camera position is bottom-left usually in Arcade unless using center.
-                # Let's assume camera.position is the bottom-left of the view.
+                # Определяем прямоугольник вьюпорта (left, right, bottom, top)
+                # Позиция камеры обычно левый нижний угол в Arcade, если не использовать центр.
+                # Предположим, camera.position это левый нижний угол вида.
                 
-                # Wait, Camera2D usually sets position as the bottom-left corner of the visible area?
-                # Or center? In Arcade 2.6+, use_camera() sets the projection.
-                # If we set camera.position = (x, y), that's usually bottom-left.
+                # Подождите, Camera2D обычно устанавливает позицию как левый нижний угол видимой области?
+                # Или центр? В Arcade 2.6+, use_camera() устанавливает проекцию.
+                # Если мы устанавливаем camera.position = (x, y), это обычно левый нижний.
                 
                 viewport_rect = (cx, cx + w, cy, cy + h)
             else:
@@ -2312,38 +2323,38 @@ class GameWindow(arcade.View, GameWindowRendering, GameWindowInventory,
         if self.merchant:
             self.merchant.update(delta_time, self.dungeon_map, self.player)
             
-        # Update dropped items physics and pickup
-        # Only process items that are moving or near the player to optimize performance
+        # Обновление физики выпавших предметов и подбора
+        # Обрабатываем только те предметы, которые движутся или находятся рядом с игроком для оптимизации
         items_to_remove = []
         
-        # Optimize: only update items if they are moving or visible/close
-        # But for bouncing to work correctly, they need to update until they stop.
-        # Once stopped (is_calm), we can skip physics updates if far away.
+        # Оптимизация: обновляем предметы только если они движутся или видимы/близко
+        # Но для корректного отскока они должны обновляться до остановки.
+        # Как только остановились (is_calm), можно пропустить расчет физики, если они далеко.
         
-        # Optimization: Culling for items
+        # Оптимизация: Отсечение предметов
         player_x, player_y = self.player.draw_pos
-        culling_dist = 1000.0 # Pixel distance to update items
+        culling_dist = 1000.0 # Дистанция в пикселях для обновления предметов
         
         for item in self.dropped_item_sprites:
-            # Distance check
+            # Проверка дистанции
             dx = item.center_x - player_x
             dy = item.center_y - player_y
             
-            # If far away AND not moving, skip
+            # Если далеко И не движется, пропускаем
             is_moving = abs(getattr(item, 'change_x', 0)) > 0.1 or abs(getattr(item, 'change_y', 0)) > 0.1
             if not is_moving and (abs(dx) > culling_dist or abs(dy) > culling_dist):
                 continue
 
             if not is_moving:
-                # If not moving, only check pickup if close to player (simple distance check or just let collision handle it)
-                # We can skip physics calc
+                # Если не движется, проверяем подбор только если близко к игроку (простая проверка дистанции или коллизии)
+                # Можем пропустить расчет физики
                 pass
             else:
-                # Physics
+                # Физика
                 new_x = item.center_x + getattr(item, 'change_x', 0)
                 new_y = item.center_y + getattr(item, 'change_y', 0)
                 
-                # Collision check with walls
+                # Проверка коллизий со стенами
                 grid_x = int(new_x / self.tile_size)
                 grid_y = int(new_y / self.tile_size)
                 
@@ -2351,31 +2362,31 @@ class GameWindow(arcade.View, GameWindowRendering, GameWindowInventory,
                     item.center_x = new_x
                     item.center_y = new_y
                 else:
-                    # Hit wall - bounce with damping (Fix for item drop mechanics)
+                    # Удар о стену - отскок с затуханием (Исправление механики падения предметов)
                     item.change_x = -item.change_x * 0.5
                     item.change_y = -item.change_y * 0.5
                 
-                # Friction
+                # Трение
                 item.change_x = getattr(item, 'change_x', 0) * 0.9
                 item.change_y = getattr(item, 'change_y', 0) * 0.9
                 
-                # Stop if slow
+                # Остановка, если скорость мала
                 if abs(item.change_x) < 0.1:
                     item.change_x = 0
                 if abs(item.change_y) < 0.1:
                     item.change_y = 0
             
-            # Pickup logic
+            # Логика подбора
             ignore_until = item.properties.get("ignore_until", 0)
             is_calm = abs(getattr(item, 'change_x', 0)) < 0.5 and abs(getattr(item, 'change_y', 0)) < 0.5
             
             if time.time() > ignore_until and is_calm:
                  if self.player and arcade.check_for_collision(self.player.sprite, item):
-                     # Add to inventory or active items
+                     # Добавление в инвентарь или активные предметы
                     icon_id = item.properties.get("icon_id")
                     picked_up = False
                     
-                    # Intercept consumables/active items
+                    # Перехват расходников/активных предметов
                     # 43, 44: Meat (+20% HP description) -> Treat as Medkit refill
                     # 45: Potion (+45% HP description) -> Treat as Medkit refill
                     if icon_id in [43, 44, 45]: 
@@ -2383,23 +2394,23 @@ class GameWindow(arcade.View, GameWindowRendering, GameWindowInventory,
                             self.player.active_items["medkit"] += 1
                             picked_up = True
                             
-                    elif icon_id == 49: # Bomb
+                    elif icon_id == 49: # Бомба
                         if self.player:
                             self.player.active_items["bomb"] += 1
                             picked_up = True
                             
-                    elif icon_id == 50: # Dynamite
+                    elif icon_id == 50: # Динамит
                         if self.player:
                             self.player.active_items["dynamite"] += 1
                             picked_up = True
                             
                     if picked_up:
                          items_to_remove.append(item)
-                    elif len(self.inventory) < 10: # Limit inventory size
+                    elif len(self.inventory) < 10: # Ограничение размера инвентаря
                         self.inventory.append({"icon_id": icon_id})
                         items_to_remove.append(item)
                         self.apply_inventory_effects()
-                        # Play pickup sound (optional)
+                        # Воспроизведение звука подбора (опционально)
         
         for item in items_to_remove:
             item.remove_from_sprite_lists()
@@ -2437,13 +2448,25 @@ class GameWindow(arcade.View, GameWindowRendering, GameWindowInventory,
                     self.camera = arcade_camera.Camera2D()
                 self.apply_frame_limit()
 
-        if self.show_pause_menu:
+        if self.show_pause_menu or self.game_over:
             self.pause_manager.on_update(delta_time)
+            return
+
+        # Обновление механики щита
+        if self.shield_active:
+            self.shield_timer -= delta_time
+            if self.shield_timer <= 0:
+                self.shield_active = False
+                self.shield_cooldown_timer = self.shield_cooldown
+                if self.player:
+                    self.player.shield_active = False
+        elif self.shield_cooldown_timer > 0:
+            self.shield_cooldown_timer -= delta_time
 
         self._update_player_state_from_keys()
 
         if self.camera and self.window and self.player and self.dungeon_map:
-            # Easy difficulty movement
+            # Перемещение для легкой сложности
             self.player.update_movement(delta_time)
 
             dx = (1 if self.move_hold["right"] else 0) - \
@@ -2481,25 +2504,59 @@ class GameWindow(arcade.View, GameWindowRendering, GameWindowInventory,
                 target_cam_x = player_pixel_x
                 target_cam_y = player_pixel_y
 
-                if self.camera.position:
-                    curr_x, curr_y = self.camera.position
-                    new_x = curr_x + (target_cam_x - curr_x) * \
-                        self.camera_lerp_speed
-                    new_y = curr_y + (target_cam_y - curr_y) * \
-                        self.camera_lerp_speed
-                    self.camera.position = (new_x, new_y)
-                else:
-                    self.camera.position = (target_cam_x, target_cam_y)
+                # Используем отдельную переменную для "истинной" позиции камеры без тряски
+                if not hasattr(self, 'true_camera_pos') or self.true_camera_pos is None:
+                    self.true_camera_pos = self.camera.position if self.camera.position else (target_cam_x, target_cam_y)
 
-            # Обновление тряски камеры
-            if self.camera_shake_duration > 0:
-                self.camera_shake_duration -= delta_time
-                if self.camera_shake_duration <= 0:
-                    self.camera_shake_duration = 0
-                    # Сброс к исходной позиции
-                    if self.camera_original_pos:
-                        self.camera.position = self.camera_original_pos
-                        self.camera_original_pos = None
+                curr_x, curr_y = self.true_camera_pos
+                new_x = curr_x + (target_cam_x - curr_x) * self.camera_lerp_speed
+                new_y = curr_y + (target_cam_y - curr_y) * self.camera_lerp_speed
+                self.true_camera_pos = (new_x, new_y)
+
+                # Применяем тряску
+                final_x, final_y = new_x, new_y
+                
+                if self.camera_shake_duration > 0:
+                    self.camera_shake_duration -= delta_time
+                    offset_x = (random.random() - 0.5) * self.camera_shake_intensity
+                    offset_y = (random.random() - 0.5) * self.camera_shake_intensity
+                    final_x += offset_x
+                    final_y += offset_y
+                
+                self.camera.position = (final_x, final_y)
+
+            # Обновление эффектов смерти босса
+            if self.dying_bosses:
+                for boss in self.dying_bosses[:]:
+                    boss.death_timer -= delta_time
+                    
+                    # Затухание
+                    if hasattr(boss, 'sprite'):
+                        alpha = max(0, int(255 * (boss.death_timer / 2.0)))
+                        boss.sprite.alpha = alpha
+                    
+                    # Создание частиц
+                    if random.random() < 0.5:
+                        bx, by = boss.draw_pos
+                        p = ExplosionParticle(
+                            bx, by, 
+                            speed=random.uniform(1.0, 3.0), 
+                            angle=random.uniform(0, 6.28),
+                            color=random.choice([arcade.color.DARK_VIOLET, arcade.color.BLACK, arcade.color.RED]),
+                            scale_speed=-0.02
+                        )
+                        boss.death_particles.append(p)
+                    
+                    # Обновление частиц
+                    if hasattr(boss, 'death_particles'):
+                        boss.death_particles.update()
+
+                    if boss.death_timer <= 0:
+                        self.dying_bosses.remove(boss)
+
+            # Обновление вспышки экрана
+            if self.screen_flash_timer > 0:
+                self.screen_flash_timer -= delta_time
 
         if self.loading_overlay_active:
             self.loading_overlay_timer += delta_time
@@ -2536,12 +2593,12 @@ class GameWindow(arcade.View, GameWindowRendering, GameWindowInventory,
                 boss_room_id = self.dungeon_map.get_room_id(
                     boss.pos[0], boss.pos[1])
                 
-                # Check distance for activation (allow chase if close even if room differs)
+                # Проверка дистанции для активации (погоня разрешена, если близко, даже если в другой комнате)
                 dist_to_player = math.sqrt(
                     (boss.draw_pos[0] - player_pixel_pos[0])**2 + 
                     (boss.draw_pos[1] - player_pixel_pos[1])**2
                 )
-                activation_dist = 15 * self.tile_size # 15 tiles
+                activation_dist = 15 * self.tile_size # 15 тайлов
                 
                 is_active = False
                 if boss_room_id is not None and boss_room_id == player_room_id:
@@ -2570,16 +2627,16 @@ class GameWindow(arcade.View, GameWindowRendering, GameWindowInventory,
                     else:
                         visible = tuple(boss.pos) in self.visible_tiles
                     
-                    # Attack logic
+                    # Логика атаки
                     if visible and boss.attack_player(player_pixel_pos):
-                        if random.random() >= self.player_dodge_chance:
+                        if not self.shield_active and random.random() >= self.player_dodge_chance:
                             self.player.take_damage(boss.attack_damage)
                 elif boss.boss_type != "Caveman Boss":
                     # Если враг (не босс) в другой комнате, он бродит
                     boss.update(delta_time, None)
                     boss.wander(delta_time, lambda x, y: self.dungeon_map.is_walkable(x, y))
 
-            # Boss Music Logic
+            # Логика музыки босса
             if any_boss_active and not getattr(self, "boss_music_active", False):
                 self.play_suspense_music()
                 self.boss_music_active = True
@@ -2595,6 +2652,11 @@ class GameWindow(arcade.View, GameWindowRendering, GameWindowInventory,
             if self.ambient_sprites and self.dungeon_map:
                 map_pixel_w = self.dungeon_map.map_width * self.tile_size
                 map_pixel_h = self.dungeon_map.map_height * self.tile_size
+                
+            # Обновление магов
+            if getattr(self, "mages", None):
+                for mage in self.mages:
+                    mage.update(delta_time)
                 for s in self.ambient_sprites:
                     s.center_x += s.change_x
                     s.center_y += s.change_y
@@ -2635,15 +2697,14 @@ class GameWindow(arcade.View, GameWindowRendering, GameWindowInventory,
 
     def handle_player_death(self):
         """Обрабатывает смерть игрока"""
-        # Stop music
         try:
             self.stop_suspense_music()
             self.stop_game_music()
         except Exception:
             pass
 
-        # Switch to Game Over view
-        # Play Game Over music
+        # Переключение на экран окончания игры
+        # Воспроизведение музыки окончания игры
         from game.logic.music_manager import MusicManager
         MusicManager().play(
             MusicManager.PATH_GAME_OVER,
@@ -2651,6 +2712,8 @@ class GameWindow(arcade.View, GameWindowRendering, GameWindowInventory,
             loop=False,
             volume=getattr(self, 'music_volume', 1.0)
         )
+        
+        self.game_over = True
         
         game_over_view = GameOverView(self)
         self.window.show_view(game_over_view)
@@ -2660,27 +2723,42 @@ class GameWindow(arcade.View, GameWindowRendering, GameWindowInventory,
         if boss in self.bosses:
             self.bosses.remove(boss)
             
-            # Log Boss Death
+            # Логирование смерти босса
             logger = GameLogger()
             logger.log(f"Boss {boss.boss_type} defeated at {boss.pos}")
             
-            # Stop Boss Music (will fade out)
+            # Остановка музыки босса (будет затухание)
             self.stop_suspense_music()
-            # Resume/Play normal level music (will fade in if priority allows or if boss music stopped)
-            # Actually stop_suspense_music calls stop() which clears everything.
-            # We should call play_game_music() to restart level ambience.
+            # Возобновление/Воспроизведение обычной музыки уровня
             self.play_game_music()
+
+            # Добавляем босса в список умирающих для анимации
+            boss.death_timer = 2.0  # Время анимации смерти
+            boss.death_particles = arcade.SpriteList()
+            self.dying_bosses.append(boss)
+
+            # Запускаем эффекты
+            self.shake_camera(15.0, 1.0)
+            self.start_screen_flash(0.5)
             
-            # print(f"Босс {boss.boss_type} убит и удалён из списка.")
-            # Открываем проход после смерти босса
-            # self.open_exit_passage()
+            # Звуковой эффект
+            try:
+                # Пытаемся найти звук взрыва или смерти
+                sound_path = find_music_file("explosion.wav")
+                if not sound_path:
+                    sound_path = find_music_file("boss_death.wav")
+                
+                if sound_path:
+                    play_once(sound_path, volume=self.sound_volume)
+            except Exception:
+                pass
             
             # Если боссов больше нет, открываем выход
             if not self.bosses:
                 if self.dungeon_map and self.dungeon_map.exit_pos:
                     ex, ey = self.dungeon_map.exit_pos
                     if 0 <= ex < self.dungeon_map.map_width and 0 <= ey < self.dungeon_map.map_height:
-                        self.dungeon_map.map_data[ey][ex] = 3 # Reveal exit
+                        self.dungeon_map.map_data[ey][ex] = 3 # Открываем выход
                 
                 self.trigger_passage_opening_effects()
             
@@ -2725,9 +2803,9 @@ class GameWindow(arcade.View, GameWindowRendering, GameWindowInventory,
 
         if self.dungeon_map.exit_pos:
             exit_x, exit_y = self.dungeon_map.exit_pos
-            # Only allow exit if the exit door is OPEN (i.e. boss defeated)
-            # The red square is drawn only when exit_door_closed is False.
-            # We can also check tile type: it should be 3.
+            # Разрешаем выход только если дверь выхода ОТКРЫТА (т.е. босс побежден)
+            # Красный квадрат рисуется только когда exit_door_closed равно False.
+            # Также можем проверить тип тайла: он должен быть 3.
             tile_val = self.dungeon_map.get_tile_value(exit_x, exit_y)
             if tile_val == 3 and self.player.is_at_position(exit_x, exit_y) and not self.dungeon_map.exit_door_closed:
                 self.advance_level()
@@ -2736,7 +2814,7 @@ class GameWindow(arcade.View, GameWindowRendering, GameWindowInventory,
         player_room_id = self.dungeon_map.get_room_id(
             self.player.pos[0], self.player.pos[1])
         if player_room_id in self.boss_room_ids and not self.exit_music_played:
-            # self.play_suspense_music() # Handled in on_update
+            # self.play_suspense_music() # Обработано в on_update
             self.exit_music_played = True
 
             # Показываем босса и делаем тряску экрана
@@ -2754,15 +2832,15 @@ class GameWindow(arcade.View, GameWindowRendering, GameWindowInventory,
                         self.shake_camera(10.0, 0.5)  # Тряска экрана
 
             # Закрываем выход, когда игрок входит в комнату босса
-            # self.close_exit_door() # Already closed during setup/update
+            # self.close_exit_door() # Уже закрыто во время настройки/обновления
             
             # Обновляем видимость, чтобы сразу отобразить изменения
             # Увеличиваем радиус обзора в комнате босса для лучшего освещения
             self.update_visibility()
         elif player_room_id not in self.boss_room_ids and self.exit_music_played:
-            # self.stop_suspense_music() # Handled in on_update
+            # self.stop_suspense_music() # Обработано в on_update
             self.exit_music_played = False
-            # self.play_game_music() # Handled in on_update
+            # self.play_game_music() # Обработано в on_update
 
     def _check_collisions_and_triggers(self):
         if not self.player or not self.dungeon_map:
@@ -2809,7 +2887,7 @@ class GameWindow(arcade.View, GameWindowRendering, GameWindowInventory,
                     # print("Игра сохранена через точку сохранения!")
 
         if self.dungeon_map.exit_room_idx is not None:
-            # Music logic moved to on_update (Boss Active state)
+            # Логика музыки перенесена в on_update (Активное состояние босса)
             pass
 
 
@@ -2891,11 +2969,11 @@ class GameWindow(arcade.View, GameWindowRendering, GameWindowInventory,
                     elif tile_value == 2:
                         color = arcade.color.LIGHT_BLUE
                     elif tile_value == 3:
-                        # Draw exit as RED on minimap only if active
+                        # Рисуем выход КРАСНЫМ на миникарте только если активен
                         if not self.dungeon_map.exit_door_closed:
                              color = arcade.color.RED
                         else:
-                             # If inactive/hidden, draw as floor
+                             # Если неактивен/скрыт, рисуем как пол
                              color = arcade.color.LIGHT_BLUE
                     else:
                         color = arcade.color.WHITE
@@ -2924,13 +3002,13 @@ class GameWindow(arcade.View, GameWindowRendering, GameWindowInventory,
             player_mini_x, player_mini_y, minimap_scale * 0.8, arcade.color.YELLOW)
 
     def create_explosion(self, x, y, radius, damage):
-        # Create visual effect
-        # Main flash
+        # Создаем визуальный эффект
+        # Основная вспышка
         explosion = Explosion(x, y, radius)
         if hasattr(self, 'explosions_list'):
             self.explosions_list.append(explosion)
             
-            # Particles
+            # Частицы
             for _ in range(30):
                 angle = random.uniform(0, 2 * math.pi)
                 speed = random.uniform(100, 300) # pixels/sec
@@ -2940,28 +3018,28 @@ class GameWindow(arcade.View, GameWindowRendering, GameWindowInventory,
                 p = ExplosionParticle(x, y, speed, angle, color, scale_speed)
                 self.explosions_list.append(p)
         
-        # Shake camera
+        # Тряска камеры
         self.shake_camera(min(5.0, damage / 10.0), 0.5)
 
-        # Check collisions
-        # Player
+        # Проверка столкновений
+        # Игрок
         if self.player:
             px, py = self.player.draw_pos
             dist_sq = (px - x)**2 + (py - y)**2
             if dist_sq <= radius**2:
-                # Calculate damage falloff
+                # Расчет падения урона
                 dist = math.sqrt(dist_sq)
                 factor = 1.0 - (dist / radius)
-                actual_damage = int(damage * factor * 0.5) # Reduced self damage
+                actual_damage = int(damage * factor * 0.5) # Уменьшенный урон по себе
                 if actual_damage > 0:
                     self.player.health = max(0, self.player.health - actual_damage)
                     self.player.damage_effect_timer = self.player.damage_effect_duration
                     
-        # Bosses
+        # Боссы
         if hasattr(self, 'bosses'):
             for boss in self.bosses:
                 if boss and boss.is_alive():
-                    # Use draw_pos for better accuracy
+                    # Использовать draw_pos для большей точности
                     if hasattr(boss, 'draw_pos'):
                         bx, by = boss.draw_pos
                     else:
@@ -2975,11 +3053,11 @@ class GameWindow(arcade.View, GameWindowRendering, GameWindowInventory,
                         actual_damage = int(damage * factor)
                         boss.take_damage(actual_damage)
         
-        # Mages (Enemies)
+        # Маги (Враги)
         if hasattr(self, 'mages'):
             for mage in self.mages:
-                if mage: # Mage might be None if dead/removed?
-                     # Mage uses draw_pos usually
+                if mage: # Маг может быть None, если мертв/удален?
+                     # Маг обычно использует draw_pos
                      if hasattr(mage, 'draw_pos'):
                          mx, my = mage.draw_pos
                      else:
@@ -2988,14 +3066,14 @@ class GameWindow(arcade.View, GameWindowRendering, GameWindowInventory,
                      
                      dist_sq = (mx - x)**2 + (my - y)**2
                      if dist_sq <= radius**2:
-                        # Mage doesn't have take_damage? It's an NPC.
-                        # Wait, MageNPC is a vendor/quest giver. Not an enemy?
-                        # User said "The-edges-of-House". Usually mages are friendly?
-                        # Re-reading context: "давай сделаем мага маленьким в углу экрана" - User likes Mage.
-                        # I shouldn't hurt friendly NPCs.
+                        # У мага нет take_damage? Это NPC.
+                        # Подождите, MageNPC - торговец/квестодатель. Не враг?
+                        # Пользователь сказал "The-edges-of-House". Обычно маги дружелюбны?
+                        # Перечитываю контекст: "давай сделаем мага маленьким в углу экрана" - Пользователю нравится Маг.
+                        # Я не должен вредить дружественным NPC.
                         pass
 
-        # Ghosts
+        # Призраки
         if hasattr(self, 'ghost_manager') and self.ghost_manager and hasattr(self.ghost_manager, 'ghosts'):
              dead_ghosts = []
              for ghost in self.ghost_manager.ghosts:
@@ -3033,12 +3111,12 @@ class GameWindow(arcade.View, GameWindowRendering, GameWindowInventory,
                 self.explosives_list.append(dynamite)
             self.player.use_active_item(key)
         elif key == "medkit":
-                # Heal 25% of max health
+                # Лечение 25% от максимального здоровья
                 if self.player.health < self.player.max_health:
                     heal_amount = self.player.max_health * 0.25
                     self.player.heal(heal_amount)
                     self.player.use_active_item(key)
-                    # Visual effect for healing?
+                    # Визуальный эффект лечения?
             
     def detonate_dynamite(self):
         if not hasattr(self, 'explosives_list'):
@@ -3048,13 +3126,16 @@ class GameWindow(arcade.View, GameWindowRendering, GameWindowInventory,
                 explosive.explode()
 
     def on_key_press(self, key, modifiers):
-        # Debug: Jump to level 20
+        if self.game_over:
+            return
+
+        # Отладка: Переход на уровень 20
         if key == arcade.key.F5 and ProjectSettings.CHEATS_ENABLED:
             self.level = 20
             self.setup_game()
             return
 
-        # Cheat: Jump to level 40 (User request 'P')
+        # Чит: Переход на уровень 40 (Запрос пользователя 'P')
         if key == arcade.key.P and ProjectSettings.CHEATS_ENABLED:
             self.level = 40
             self.map_payload = None
@@ -3064,7 +3145,7 @@ class GameWindow(arcade.View, GameWindowRendering, GameWindowInventory,
             self.play_game_music()
             return
 
-        # Route to mage dialog if visible
+        # Переход к диалогу с магом, если он виден
         if hasattr(self, 'mage_dialog') and self.mage_dialog and self.mage_dialog.is_visible:
             if self.mage_dialog.on_key_press(key, modifiers):
                 return
@@ -3082,42 +3163,46 @@ class GameWindow(arcade.View, GameWindowRendering, GameWindowInventory,
                 self.pause_manager.enable()
             return
 
-        if self.show_pause_menu:
+        if self.show_pause_menu or self.game_over:
             return
 
         if key == arcade.key.Z:
             if self.player:
                 self.player.cycle_active_item()
         elif key == arcade.key.F:
-            self.use_current_active_item()
+            if not self.shield_active and self.shield_cooldown_timer <= 0:
+                self.shield_active = True
+                self.shield_timer = self.shield_duration
+                if self.player:
+                    self.player.shield_active = True
         elif key == arcade.key.R:
             self.detonate_dynamite()
 
         if key == arcade.key.E:
             px, py = self.player.draw_pos if self.player else (0, 0)
             
-            # Interact with Sage
+            # Взаимодействие с Мудрецом
             if self.sage:
                 sx, sy = self.sage.draw_pos
                 dist_sq = (sx - px) ** 2 + (sy - py) ** 2
-                # Interaction dist is tile_size * 2, so sq is (tile_size * 2)^2
+                # Дистанция взаимодействия - tile_size * 2, квадрат - (tile_size * 2)^2
                 if dist_sq < (self.tile_size * 2) ** 2:
                     self.sage.interact()
             
-            # Interact with Merchant
+            # Взаимодействие с Торговцем
             if self.merchant:
                 mx, my = self.merchant.draw_pos
                 dist_sq = (mx - px) ** 2 + (my - py) ** 2
                 if dist_sq < (self.tile_size * 2) ** 2:
                     self.merchant.interact()
             
-            # Interact with Mages
+            # Взаимодействие с Магами
             for mage in self.mages:
                 if mage:
                     mx, my = mage.draw_pos
                     dist_sq = (mx - px) ** 2 + (my - py) ** 2
                     if dist_sq < (self.tile_size * 2) ** 2:
-                        # Show dialog
+                        # Показать диалог
                         if self.mage_dialog:
                             self.mage_dialog.show()
                         break
@@ -3147,12 +3232,12 @@ class GameWindow(arcade.View, GameWindowRendering, GameWindowInventory,
             dy = (1 if self.move_hold["up"] else 0) - \
                 (1 if self.move_hold["down"] else 0)
             if dx != 0 or dy != 0:
-                # Easy difficulty movement
+                # Перемещение на легкой сложности
                 if not self.player.is_moving:
                     new_x = self.player.pos[0] + dx
                     new_y = self.player.pos[1] + dy
                     if self.can_move_to(new_x, new_y):
-                        # Adjust move speed for running vs walking
+                        # Настройка скорости для бега/ходьбы
                         if self.is_running:
                             self.player.move_speed = self.player.base_move_speed * 1.6
                         else:
@@ -3179,7 +3264,7 @@ class GameWindow(arcade.View, GameWindowRendering, GameWindowInventory,
             self.debug_show_sage_info = not getattr(self, "debug_show_sage_info", False)
             # print(f"[Admin] Показывать инфо о Мудреце: {self.debug_show_sage_info}")
         elif key == arcade.key.F10 and ProjectSettings.CHEATS_ENABLED:
-            # Cheat: Jump to level 40
+            # Чит: Переход на уровень 40
             self.level = 40
             self.map_payload = None
             self.stop_suspense_music()
@@ -3192,7 +3277,7 @@ class GameWindow(arcade.View, GameWindowRendering, GameWindowInventory,
                 icon_id = item.get("icon_id")
                 px, py = self.player.get_pixel_position()
                 
-                # Drop item logic with physics
+                # Логика выбрасывания предмета с физикой
                 # Логика выброса предмета с физикой
                 start_dist = 20 # Начальное расстояние (1-2 единицы ~ 20px)
                 throw_force = 5.0 # Сила броска
@@ -3258,6 +3343,9 @@ class GameWindow(arcade.View, GameWindowRendering, GameWindowInventory,
                 self.loading_spinner_angle = 0.0
 
     def on_key_release(self, key, modifiers):
+        if self.game_over:
+            return
+
         if key in (arcade.key.W, arcade.key.UP):
             self.move_hold["up"] = False
         elif key in (arcade.key.S, arcade.key.DOWN):
@@ -3300,10 +3388,13 @@ class GameWindow(arcade.View, GameWindowRendering, GameWindowInventory,
             
         damage = int((self.player.base_damage + self.player.bonus_damage_flat) * damage_mult)
         
+        # Логирование расчета урона
+        print(f"DEBUG: Damage Calc - Base: {self.player.base_damage}, Flat Bonus: {self.player.bonus_damage_flat}, Pct Bonus: {self.player.bonus_damage_percent}, Buff Mult: {self.damage_buff_multiplier if self.damage_buff_timer > 0 else 1.0}, Final Mult: {damage_mult}, Final Damage: {damage}")
+        
         if getattr(self, 'cheats_one_hit_kill', False):
              damage = 999999
         
-        # Double strike check
+        # Проверка двойного удара
         hits = 1
         if self.player.has_double_strike:
             hits = 2
@@ -3325,13 +3416,13 @@ class GameWindow(arcade.View, GameWindowRendering, GameWindowInventory,
                     if not (ax2 < bx1 or ax1 > bx2 or ay2 < by1 or ay1 > by2):
                         targets.append(boss)
 
-        # Check Ghosts
+        # Проверка призраков
         if hasattr(self, 'ghosts'):
             for ghost in self.ghosts:
                  if ghost.is_alive():
-                     # Ghost uses draw_pos which is center
+                     # Призрак использует draw_pos (центр)
                      gx, gy = ghost.draw_pos
-                     # Simple radius check or box check. Ghost is tile_size.
+                     # Простая проверка радиуса или прямоугольника. Призрак размером с тайл.
                      size = self.tile_size
                      gx1 = gx - size * 0.5
                      gx2 = gx + size * 0.5
@@ -3349,7 +3440,7 @@ class GameWindow(arcade.View, GameWindowRendering, GameWindowInventory,
 
         for i in range(hits):
             for target in targets:
-                 # Deal damage to target
+                 # Нанесение урона цели
                  if hasattr(target, 'take_damage'):
                      target.take_damage(damage)
                      
@@ -3368,12 +3459,15 @@ class GameWindow(arcade.View, GameWindowRendering, GameWindowInventory,
     def handle_ghost_death(self, ghost):
         if ghost in self.ghosts:
             self.ghosts.remove(ghost)
-            # Log Ghost Death
+            # Логирование смерти призрака
             # logger = GameLogger()
             # logger.log(f"Ghost defeated at {ghost.pos}")
             
     def on_mouse_press(self, x, y, button, modifiers):
-        # Route to mage dialog if visible
+        if self.game_over:
+            return
+
+        # Перенаправление в диалог мага, если он видим
         if hasattr(self, 'mage_dialog') and self.mage_dialog and self.mage_dialog.is_visible:
             if self.mage_dialog.on_mouse_press(x, y, button, modifiers):
                 return
@@ -3395,7 +3489,7 @@ class GameWindow(arcade.View, GameWindowRendering, GameWindowInventory,
                     drop_ids = random.sample(
                         list(self.valid_item_ids), k=min(3, len(self.valid_item_ids)))
                     for iid in drop_ids:
-                        # Random velocity for explosion effect
+                        # Случайная скорость для эффекта взрыва
                         angle = random.uniform(0, 6.28)
                         speed = random.uniform(3.0, 6.0)
                         vx = math.cos(angle) * speed
@@ -3437,15 +3531,13 @@ class GameWindow(arcade.View, GameWindowRendering, GameWindowInventory,
         if self.camera:
             self.camera_shake_intensity = intensity
             self.camera_shake_duration = duration
-            self.camera_original_pos = self.camera.position
-
-            # Применяем тряску сразу
-            shake_x = (random.random() - 0.5) * self.camera_shake_intensity
-            shake_y = (random.random() - 0.5) * self.camera_shake_intensity
-            self.camera.position = (
-                self.camera.position[0] + shake_x,
-                self.camera.position[1] + shake_y
-            )
+            # Примечание: Фактическое смещение тряски применяется в on_update
+            
+    def start_screen_flash(self, duration, color=arcade.color.WHITE):
+        """Запускает эффект вспышки на экране"""
+        self.screen_flash_duration = duration
+        self.screen_flash_timer = duration
+        self.screen_flash_color = color
 
     def attack_boss(self, target_pos=None):
         """
@@ -3474,8 +3566,8 @@ class GameWindow(arcade.View, GameWindowRendering, GameWindowInventory,
             dirs = {
                 'right': 0,
                 'left': math.pi,
-                'back': math.pi/2,  # Up
-                'front': -math.pi/2  # Down
+                'back': math.pi/2,  # Вверх
+                'front': -math.pi/2  # Вниз
             }
             attack_dir = dirs.get(self.player.facing, 0)
 
@@ -3545,7 +3637,7 @@ class GameWindow(arcade.View, GameWindowRendering, GameWindowInventory,
         new_y = self.player.pos[1] + dy
         if 0 <= new_x < self.dungeon_map.map_width and 0 <= new_y < self.dungeon_map.map_height:
             if self.can_move_to(new_x, new_y):
-                # Easy difficulty movement
+                # Перемещение на легкой сложности
                 if self.player.move(dx, dy):
                     self._on_player_moved()
 
@@ -3594,7 +3686,7 @@ class GameWindow(arcade.View, GameWindowRendering, GameWindowInventory,
         return True
 
     def advance_level(self):
-        # Log Level Transition
+        # Логирование перехода уровня
         logger = GameLogger()
         logger.log(f"Level Transition from {self.level} to {self.level + 1}")
         
@@ -3602,9 +3694,9 @@ class GameWindow(arcade.View, GameWindowRendering, GameWindowInventory,
         self.visible_tiles.clear()
         self.explored_tiles.clear()
         self.stop_suspense_music()
-        self.reset_level_music() # Reset music selection for new level
+        self.reset_level_music() # Сброс выбора музыки для нового уровня
         self.exit_music_played = False
-        # Easy difficulty - no hard save system
+        # Легкая сложность - нет жесткой системы сохранений
         self.save_point_used = False
         self.map_payload = None
         self.spawn_corner = None
@@ -3682,7 +3774,7 @@ class GameWindow(arcade.View, GameWindowRendering, GameWindowInventory,
                 screen_x = x * tile_size_float
                 cx = screen_x + tile_size_float / 2
                 
-                # Try to use texture
+                # Попытка использовать текстуру
                 tex = self.dungeon_map.textures.get(value) if hasattr(self.dungeon_map, 'textures') else None
                 
                 if tex:
@@ -3692,27 +3784,27 @@ class GameWindow(arcade.View, GameWindowRendering, GameWindowInventory,
                     key = 'visible' if visible else 'seen'
                     texture_batches[value][key].append((cx, cy))
                 else:
-                    # Fallback logic
+                    # Логика отката
                     left = screen_x
                     right = screen_x + tile_size_float
                     
-                    if value == 3: # Exit
+                    if value == 3: # Выход
                         key = 'visible_exit' if visible else 'seen_exit'
                         batches[key].append((left, right, bottom, top))
-                    elif value == 1: # Wall
+                    elif value == 1: # Стена
                         key = 'visible_wall' if visible else 'seen_wall'
                         batches[key].append((left, right, bottom, top))
-                    else: # Floor
+                    else: # Пол
                         key = 'visible_floor' if visible else 'seen_floor'
                         batches[key].append((left, right, bottom, top))
 
-        # Draw textures
+        # Отрисовка текстур
         for val, lists in texture_batches.items():
             tex = self.dungeon_map.textures.get(val)
             if not tex:
                 continue
             
-            # Visible
+            # Видимые
             for cx, cy in lists['visible']:
                 left = cx - tile_size / 2
                 right = cx + tile_size / 2
@@ -3721,7 +3813,7 @@ class GameWindow(arcade.View, GameWindowRendering, GameWindowInventory,
                 rect = arcade.types.Rect(left, right, bottom, top, tile_size, tile_size, cx, cy)
                 arcade.draw_texture_rect(tex, rect)
                 
-            # Seen (Tinted)
+            # Виденные (Затемненные)
             color = arcade.types.Color(100, 100, 110)
             for cx, cy in lists['seen']:
                 left = cx - tile_size / 2
@@ -3833,6 +3925,17 @@ class GameWindow(arcade.View, GameWindowRendering, GameWindowInventory,
                 cy = boss.sprite.center_y if hasattr(boss, "sprite") else boss.pos[1] * self.tile_size
                 r = self.tile_size * 0.7
                 arcade.draw_circle_outline(cx, cy, r, arcade.color.RED, 3)
+
+        # Отрисовка NPC (Sage, Merchant, Mages)
+        if getattr(self, "sage", None):
+            self.sage.draw()
+        
+        if getattr(self, "merchant", None):
+            self.merchant.draw()
+            
+        if getattr(self, "mages", None):
+            for mage in self.mages:
+                mage.draw()
 
         if self.visible_chests and self.player and self.dungeon_map:
             chests_to_draw = arcade.SpriteList()
@@ -4040,7 +4143,7 @@ class GameWindow(arcade.View, GameWindowRendering, GameWindowInventory,
         )
 
         # Дополнительный текст
-        # sub_text removed as unused
+        # sub_text удален как неиспользуемый
 
     def update_story(self, delta_time):
         """Обновление логики отображения истории"""
@@ -4049,7 +4152,7 @@ class GameWindow(arcade.View, GameWindowRendering, GameWindowInventory,
         # Оставляем таймер для отладки, но не используем для скрытия текста
         if self.current_story_line:
             self.story_line_timer -= delta_time
-            # Debug timer every second
+            # Отладочный таймер каждую секунду
             if int(self.story_line_timer + delta_time) != int(self.story_line_timer):
                 print(f"Story timer: {int(self.story_line_timer)}")
 

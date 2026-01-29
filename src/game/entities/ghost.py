@@ -11,7 +11,8 @@ class Ghost(Follower):
     def __init__(self, tile_size, pos=(0, 0), level=1):
         super().__init__()
         self.tile_size = tile_size
-        self.pos = list(pos) # Grid position
+        # Позиция в сетке
+        self.pos = list(pos)
         self.draw_pos = [pos[0] * tile_size + tile_size // 2,
                          pos[1] * tile_size + tile_size // 2]
         
@@ -21,18 +22,18 @@ class Ghost(Follower):
         self.max_hp = 30
         self._calculate_stats()
         
-        # State Machine
-        self.state = 'idle' # idle, chase, attack
+        # Машина состояний
+        self.state = 'idle' # idle (покой), chase (преследование), attack (атака)
         self.facing = 'front'
         
         self.id = None
         self.move_speed_pixels = 50.0
 
-        # Aggro System
-        self.aggro_radius = 500.0 # Pixels (Increased from 250)
-        self.attack_radius = 40.0 # Pixels
+        # Система агрессии
+        self.aggro_radius = 500.0 # Пиксели (Увеличено с 250)
+        self.attack_radius = 40.0 # Пиксели
         
-        # Attack System
+        # Система атаки
         self.attack_cooldown = 1.0
         self.attack_timer = 0.0
         self.can_attack = True
@@ -50,18 +51,18 @@ class Ghost(Follower):
         self._update_animation()
 
     def _calculate_stats(self):
-        # Damage logic:
-        # Level < 20: 0 damage (Passive)
-        # Level >= 20: Base 10 damage
-        # Level 20-30: +5 per level
+        # Логика урона:
+        # Уровень < 20: 0 урона (Пассивный)
+        # Уровень >= 20: Базовый урон 10
+        # Уровень 20-30: +5 за каждый уровень
         
-        # HP Logic: Base 30 + 7 per level
+        # Логика HP: Базовое 30 + 7 за уровень
         self.max_hp = 30 + (self.level * 7)
         self.hp = self.max_hp
         
         if self.level >= 20:
             self.damage = 10
-            # Add +5 for each level above 20, up to 30
+            # Добавляем +5 за каждый уровень выше 20, до 30
             levels_above_20 = min(self.level, 30) - 20
             if levels_above_20 > 0:
                 self.damage += levels_above_20 * 5
@@ -69,17 +70,17 @@ class Ghost(Follower):
             self.damage = 0
             
     def _load_resources(self):
-        # Try to load Giant Goblin assets as placeholder for Ghost
+        # Пытаемся загрузить ассеты Гигантского Гоблина как замену для Призрака
         base_path = "resources/character_enemies/Giant Goblin"
         if os.path.exists(base_path):
             self._load_animations(base_path)
             
         if not self.sprite:
-            # Fallback
+            # Запасной вариант
             self.sprite = arcade.SpriteSolidColor(self.tile_size, self.tile_size, arcade.color.GHOST_WHITE)
             self.sprite_list.append(self.sprite)
         else:
-            self.sprite.alpha = 150 # Ghostly transparency
+            self.sprite.alpha = 150 # Призрачная прозрачность
             
     def _load_animations(self, base_path):
         directions = ['Front', 'Back', 'Left', 'Right']
@@ -121,33 +122,33 @@ class Ghost(Follower):
         direction = self.facing.lower()
         if self.state == 'attack':
             return f"{direction}_attacking"
-        # default to running if moving or idle
+        # по умолчанию бег, если движется или стоит
         return f"{direction}_running"
 
     def _update_animation(self):
         key = self._get_animation_key()
         if key in self.animations:
             new_frames = self.animations[key]
-            # Reset animation if it changed
+            # Сброс анимации, если она изменилась
             if new_frames != self.current_animation_frames:
                 self.current_animation_frames = new_frames
                 self.current_frame_index = 0
                 self.animation_timer = 0
-                # Immediately set first frame
+                # Сразу устанавливаем первый кадр
                 if self.current_animation_frames:
                     self.sprite.texture = self.current_animation_frames[0]
         elif self.animations:
             self.current_animation_frames = list(self.animations.values())[0]
 
     def update(self, delta_time, player=None, dungeon_map=None, lod_level=0):
-        # Update animation based on LOD
+        # Обновление анимации в зависимости от LOD
         if lod_level < 2:
             self.animation_timer += delta_time
             
-            # For LOD 1, we could slow down animation or skip updates, 
-            # but simple "stop if far" (LOD 2) is often enough.
-            # Let's say LOD 1 just reduces frequency if we wanted, but here we'll keep it simple:
-            # LOD 0 & 1: Animate. LOD 2: Static.
+            # Для LOD 1 мы могли бы замедлить анимацию или пропускать обновления, 
+            # но простого "остановить, если далеко" (LOD 2) часто достаточно.
+            # Допустим, LOD 1 просто уменьшает частоту, если мы хотим, но здесь оставим просто:
+            # LOD 0 & 1: Анимация. LOD 2: Статика.
             
             if self.current_animation_frames and self.animation_timer >= self.animation_speed:
                  self.animation_timer = 0
@@ -164,24 +165,24 @@ class Ghost(Follower):
         if not player or not dungeon_map:
             return
 
-        # 1. Check Distance & State
+        # 1. Проверка дистанции и состояния
         player_pos = player.draw_pos if hasattr(player, 'draw_pos') else player.pos
-        # Ensure player_pos is pixels
+        # Убедимся, что player_pos в пикселях
         if not hasattr(player, 'draw_pos'):
-            # Fallback if passed simple pos list
+            # Запасной вариант, если передан простой список координат
              pass 
         
         dx = player_pos[0] - self.draw_pos[0]
         dy = player_pos[1] - self.draw_pos[1]
         dist = math.sqrt(dx*dx + dy*dy)
         
-        # Refine State (Manager handles Idle <-> Chase)
-        # Handle Chase <-> Attack locally for responsiveness
+        # Уточнение состояния (Менеджер обрабатывает Idle <-> Chase)
+        # Обрабатываем Chase <-> Attack локально для отзывчивости
         if self.state == 'chase':
-            # Check Line of Sight for attack transition
+            # Проверка линии видимости для перехода в атаку
             has_los = True
             if hasattr(dungeon_map, 'has_line_of_sight'):
-                # Check from center to center roughly
+                # Проверка от центра к центру грубо
                 start_node = (int(self.draw_pos[0] // self.tile_size), int(self.draw_pos[1] // self.tile_size))
                 end_node = (int(player_pos[0] // self.tile_size), int(player_pos[1] // self.tile_size))
                 has_los = dungeon_map.has_line_of_sight(start_node, end_node)
@@ -193,9 +194,9 @@ class Ghost(Follower):
              if dist > self.attack_radius:
                  self.state = 'chase'
             
-        # 2. Act based on State
+        # 2. Действие в зависимости от состояния
         if self.state == 'attack':
-            # Ensure facing player during attack
+            # Обеспечиваем поворот к игроку во время атаки
             dx = player_pos[0] - self.draw_pos[0]
             dy = player_pos[1] - self.draw_pos[1]
             if abs(dx) > abs(dy):
@@ -204,44 +205,44 @@ class Ghost(Follower):
                 self.facing = 'back' if dy > 0 else 'front'
                 
             self._perform_attack(player)
-            # Stop moving when attacking
+            # Остановка движения при атаке
             pass
             
         elif self.state == 'chase':
-            # Use Pathfinding
-            # move_along_path returns (dx, dy) step for this frame
+            # Использование поиска пути
+            # move_along_path возвращает шаг (dx, dy) для этого кадра
             move_dx, move_dy = self.move_along_path(delta_time, self.draw_pos, player_pos, self.move_speed_pixels, self.tile_size, dungeon_map)
             
-            # Apply movement with collision check
+            # Применение движения с проверкой столкновений
             self._move_with_collisions(move_dx, move_dy, dungeon_map)
             
-            # Update facing
+            # Обновление направления
             if abs(move_dx) > abs(move_dy):
                 self.facing = 'right' if move_dx > 0 else 'left'
             else:
                 self.facing = 'back' if move_dy > 0 else 'front'
                 
-        # Visual Aggro Indicator
+        # Визуальный индикатор агрессии
         if self.sprite:
-            # Reset color if not attacking/damaged recently (Simple approach)
-            # Ideally we use a timer for flash effects
+            # Сброс цвета, если не атакует/не получил урон недавно (Простой подход)
+            # В идеале использовать таймер для эффектов вспышки
             if self.state == 'attack':
                  self.sprite.color = arcade.color.RED
-                 # Pulse effect for visual feedback
+                 # Эффект пульсации для визуальной обратной связи
                  base_scale = (self.tile_size / self.sprite.texture.width) * 0.8 if (self.sprite.texture and self.sprite.texture.width) else 1.0
                  self.sprite.scale = base_scale * (1.0 + 0.15 * math.sin(time.time() * 15))
                  
                  if not self.can_attack:
-                     # Cooldown period, maybe dim red
+                     # Период перезарядки, возможно тускло-красный
                      self.sprite.color = (200, 0, 0)
             elif self.state == 'chase':
-                self.sprite.color = (255, 100, 100) # Light Red
-                # Reset scale
+                self.sprite.color = (255, 100, 100) # Светло-красный
+                # Сброс масштаба
                 base_scale = (self.tile_size / self.sprite.texture.width) * 0.8 if (self.sprite.texture and self.sprite.texture.width) else 1.0
                 self.sprite.scale = base_scale
             else:
                 self.sprite.color = arcade.color.WHITE
-                # Reset scale
+                # Сброс масштаба
                 base_scale = (self.tile_size / self.sprite.texture.width) * 0.8 if (self.sprite.texture and self.sprite.texture.width) else 1.0
                 self.sprite.scale = base_scale
 
@@ -256,31 +257,31 @@ class Ghost(Follower):
         self._update_animation()
 
     def _move_with_collisions(self, dx, dy, dungeon_map):
-        """Moves the ghost while checking for wall collisions."""
+        """Перемещает призрака, проверяя столкновения со стенами."""
         
-        # Attempt X movement
+        # Попытка движения по X
         new_x = self.draw_pos[0] + dx
         if not self._check_wall_collision(new_x, self.draw_pos[1], dungeon_map):
             self.draw_pos[0] = new_x
             
-        # Attempt Y movement
+        # Попытка движения по Y
         new_y = self.draw_pos[1] + dy
         if not self._check_wall_collision(self.draw_pos[0], new_y, dungeon_map):
             self.draw_pos[1] = new_y
             
     def _check_wall_collision(self, x, y, dungeon_map):
-        """Checks if the given pixel position collides with a wall."""
-        # Simple point check might be enough, or check corners of bounding box
-        # Using center point for simplicity first, but can be improved
+        """Проверяет, сталкивается ли данная пиксельная позиция со стеной."""
+        # Простая проверка точки может быть достаточной, или проверка углов bounding box
+        # Используем центральную точку для простоты, но можно улучшить
         grid_x = int(x / self.tile_size)
         grid_y = int(y / self.tile_size)
         
-        # Boundary check
+        # Проверка границ
         if grid_x < 0 or grid_x >= dungeon_map.map_width or grid_y < 0 or grid_y >= dungeon_map.map_height:
             return True
             
-        # Wall check (0 is floor, 1 is wall)
-        # Use map_data instead of grid
+        # Проверка стен (0 - пол, 1 - стена)
+        # Используем map_data вместо grid
         if hasattr(dungeon_map, 'map_data'):
             if dungeon_map.map_data[grid_y][grid_x] == 1:
                 return True
@@ -293,11 +294,11 @@ class Ghost(Follower):
     def _perform_attack(self, player):
         if self.can_attack:
             if hasattr(player, 'take_damage'):
-                # Visual feedback for attack
+                # Визуальная обратная связь для атаки
                 if self.sprite:
                      self.sprite.color = arcade.color.RED
-                     # Force update texture to ensure it's not "stuck"
-                     # Use attack animation if available
+                     # Принудительное обновление текстуры, чтобы она не "застряла"
+                     # Использование анимации атаки, если доступна
                      attack_key = self._get_animation_key()
                      if attack_key in self.animations:
                          frames = self.animations[attack_key]
@@ -310,20 +311,20 @@ class Ghost(Follower):
                 player.take_damage(self.damage)
                 self.can_attack = False
             else:
-                # Fallback if player doesn't have take_damage (should not happen based on player.py)
+                # Запасной вариант, если у игрока нет take_damage (не должно происходить, судя по player.py)
                 pass
 
     def take_damage(self, amount):
         self.hp -= amount
         
-        # Visual feedback for damage
+        # Визуальная обратная связь для урона
         if self.sprite:
             self.sprite.color = arcade.color.ORANGE
             
         if self.sprite and self.hp <= 0:
             self.sprite.color = arcade.color.GRAY
-            # More logic handled by manager/window
-            # self.sprite.color = (255, 0, 0) # Flash red logic moved or removed
+            # Больше логики обрабатывается менеджером/окном
+            # self.sprite.color = (255, 0, 0) # Логика красной вспышки перенесена или удалена
         # print(f"Ghost took {amount} damage. HP: {self.hp}/{self.max_hp}")
 
     def is_alive(self):

@@ -26,8 +26,8 @@ class StartWindowMusic:
         
     def stop_settings_music(self):
         """Остановка музыки настроек"""
-        # MusicManager automatically handles switching, so this can be a no-op
-        # or we can stop if we strictly want silence before next track
+        # MusicManager автоматически обрабатывает переключение, поэтому это может быть холостая операция
+        # или мы можем остановить, если строго хотим тишины перед следующим треком
         pass
 
     def resume_main_music(self):

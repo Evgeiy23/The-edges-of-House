@@ -35,7 +35,7 @@ class LoadingView(arcade.View):
         self._started_at = time.time()
         self._switch_when_done = False
 
-        # Initialize story UI manager
+        # Инициализация менеджера UI истории
         self.story_manager = arcade.gui.UIManager()
 
         self.story_lines = []
@@ -63,6 +63,37 @@ class LoadingView(arcade.View):
         self._enter_loading_timer = 0.0
         self._enter_loading_duration = 3.0
 
+        # Phase constants
+        self.PHASE_VIDEO = 0
+        self.PHASE_TRANSITION = 1
+        self.PHASE_STORY = 2
+        self.PHASE_LOADING = 3
+        self.current_phase = self.PHASE_VIDEO
+
+        # Video playback state
+        self.video_player = None
+        self.video_texture = None
+        self.video_path = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
+            "resources", "videos", "start.mp4"
+        )
+
+        # Audio state
+        self.bg_music_player = None
+        self.bg_music_path = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
+            "music", "start.wav"
+        )
+
+        # Fading state
+        self.fade_alpha = 255  # Start fully black (fade in)
+        self.fade_state = "in"  # "in" (black -> clear), "out" (clear -> black), "idle"
+        self.fade_speed = 300  # Alpha change per second
+        self.next_phase = None  # Phase to switch to after fade out
+        self.should_fade_out = False # Trigger to start fading out
+
+
+
     def load_settings(self):
         try:
             config_path = get_config_path()
@@ -74,13 +105,13 @@ class LoadingView(arcade.View):
             pass
 
     def setup_story_ui(self):
-        """Setup UI for story display with 'Next' button"""
+        """Настройка UI для отображения истории с кнопкой 'Далее'"""
         self.story_manager.clear()
 
-        # Create UI elements for story display
+        # Создание элементов UI для отображения истории
         main_box = arcade.gui.UIBoxLayout(vertical=True, space_between=30)
 
-        # Empty label for story text (text will be drawn separately)
+        # Пустая метка для текста истории (текст будет отрисован отдельно)
         text_label = arcade.gui.UILabel(
             text="",
             font_size=18,
@@ -92,14 +123,14 @@ class LoadingView(arcade.View):
         )
         main_box.add(text_label)
 
-        # Spacer for better layout
+        # Разделитель для лучшего макета
         spacer = arcade.gui.UISpace(
             width=self.width * 0.8 if hasattr(self, 'width') else 600,
             height=50
         )
         main_box.add(spacer)
 
-        # Next button
+        # Кнопка "Далее"
         next_button = arcade.gui.UIFlatButton(
             text="Далее",
             width=200,
@@ -132,11 +163,11 @@ class LoadingView(arcade.View):
             anchor_y="center_y"
         )
         self.story_manager.add(anchor_layout)
-        self.story_manager.disable()  # Initially disabled, will be enabled when showing story
+        self.story_manager.disable()  # Изначально отключено, будет включено при показе истории
 
     def on_next_click(self, event):
-        """Handle 'Next' button click"""
-        # Move to next story line or show start prompt
+        """Обработка нажатия кнопки 'Далее'"""
+        # Переход к следующей строке истории или показ приглашения к старту
         self.current_story_line = self.story_lines.pop(
             0) if self.story_lines else None
         self.current_story_audio_index += 1
@@ -145,14 +176,69 @@ class LoadingView(arcade.View):
             self.play_story_audio_line(self.current_story_audio_index)
         else:
             self.show_start_prompt = True
-            # Disable story UI when no more story lines
+            # Отключение UI истории, когда строк больше нет
             self.story_manager.disable()
 
     def on_show_view(self):
         arcade.set_background_color(ProjectSettings.BACKGROUND_COLOR)
-        # Initially disable the story UI until story is ready to be shown
+        # Изначально отключить UI истории, пока история не будет готова к показу
         self.story_manager.disable()
         self._start_worker()
+        self._start_music()
+        self._start_video()
+
+    def _start_music(self):
+        """Starts the background music."""
+        if os.path.exists(self.bg_music_path):
+            try:
+                music = arcade.load_sound(self.bg_music_path)
+                # Use sound.play() instead of arcade.play_sound() for better compatibility with looping
+                self.bg_music_player = music.play(volume=self.sound_volume, loop=True)
+            except Exception as e:
+                print(f"Error loading music: {e}")
+        else:
+            print(f"Music file not found: {self.bg_music_path}")
+
+    def _start_video(self):
+        """Starts the intro video playback."""
+        print(f"Attempting to load video from: {self.video_path}")
+        if os.path.exists(self.video_path):
+            try:
+                source = pyglet.media.load(self.video_path)
+                self.video_player = pyglet.media.Player()
+                self.video_player.queue(source)
+                self.video_player.volume = 0  # Mute audio
+                self.video_player.play()
+                self.current_phase = self.PHASE_VIDEO
+                print(f"Video loaded successfully. Duration: {source.duration}")
+            except Exception as e:
+                print(f"Error loading video: {e}")
+                self.current_phase = self.PHASE_TRANSITION
+                self.video_player = None
+        else:
+            print(f"Video file not found: {self.video_path}")
+            self.current_phase = self.PHASE_TRANSITION
+
+    def _stop_video(self):
+        """Stops the video playback."""
+        if self.video_player:
+            try:
+                self.video_player.pause()
+                self.video_player.delete()
+            except Exception:
+                pass
+            self.video_player = None
+        self.video_texture = None
+        
+        # Trigger fade out to transition to next phase
+        if self.current_phase == self.PHASE_VIDEO:
+            self._trigger_fade_out(self.PHASE_TRANSITION)
+
+    def _trigger_fade_out(self, next_phase):
+        """Starts fading out to black, then switches to next_phase."""
+        if self.fade_state != "out":
+            self.fade_state = "out"
+            self.next_phase = next_phase
 
     def _start_worker(self):
         if self._worker_thread:
@@ -186,106 +272,202 @@ class LoadingView(arcade.View):
     def on_draw(self):
         self.clear()
 
-        if self._enter_loading_active:
-            w, h = self.width, self.height
-            arcade.draw_lrbt_rectangle_filled(0, w, 0, h, (0, 0, 0, 180))
-            text = "Генерация карты..."
-            r = int(min(w, h) * 0.06)
-            text_y = h // 2 + int(r * 0.8)
-            arcade.draw_text(text, w // 2, text_y, arcade.color.WHITE, 28, anchor_x="center", anchor_y="center", bold=True)
-            r = int(min(w, h) * 0.06)
-            cx, cy = w // 2, h // 2 - r * 2
-            arcade.draw_arc_outline(cx, cy, r * 2, r * 2, arcade.color.DARK_GRAY, 0, 360, 6)
-            sa = self._spinner_angle
-            arcade.draw_arc_outline(cx, cy, r * 2, r * 2, arcade.color.LIGHT_BLUE, sa, sa + 120, 8)
-            return
+        if self.current_phase == self.PHASE_VIDEO:
+            if self.video_texture:
+                try:
+                    self.video_texture.blit(0, 0, width=self.width, height=self.height)
+                except Exception:
+                    pass
+            # If video is playing, we don't draw anything else (intro segment)
+            # But we might want to show a "Skip" hint
+            skip_text = "Нажмите ESCAPE или ENTER чтобы пропустить"
+            arcade.draw_text(
+                skip_text,
+                self.width - 20,
+                20,
+                arcade.color.LIGHT_GRAY,
+                14,
+                anchor_x="right",
+                anchor_y="bottom",
+                align="right"
+            )
+            
+        elif self.current_phase == self.PHASE_TRANSITION:
+            # Draw black background
+            arcade.draw_lrbt_rectangle_filled(0, self.width, 0, self.height, arcade.color.BLACK)
+            
+            # Draw text
+            text = "Вы вошли в подземелье, но перед этим я поведаю вам историю, почему я здесь."
+            arcade.draw_text(
+                text, 
+                self.width // 2, 
+                self.height // 2, 
+                arcade.color.WHITE, 
+                24, 
+                anchor_x="center", 
+                anchor_y="center", 
+                align="center", 
+                width=int(self.width * 0.8), 
+                multiline=True
+            )
+            
+            # Hint
+            hint = "Нажмите ENTER чтобы продолжить"
+            # Blink effect
+            alpha = int(180 + 75 * abs(math.sin(time.time() * 3.0)))
+            arcade.draw_text(
+                hint, 
+                self.width // 2, 
+                50, 
+                (*arcade.color.GRAY[:3], alpha), 
+                16, 
+                anchor_x="center"
+            )
+
+        elif self.current_phase == self.PHASE_STORY:
+            if self.status == "done":
+                if self.current_story_line:
+                    bg_h = 160
+                    center_y = self.height // 2
+                    arcade.draw_lrbt_rectangle_filled(
+                        0, self.width, center_y - bg_h // 2, center_y +
+                        bg_h // 2, (0, 0, 0, 180)
+                    )
+                    arcade.draw_text(
+                        self.current_story_line,
+                        self.width // 2,
+                        center_y,
+                        arcade.color.WHITE,
+                        22,
+                        anchor_x="center",
+                        anchor_y="center",
+                        align="center",
+                        width=int(self.width * 0.85),
+                        multiline=True,
+                    )
+                    # Отрисовка UI истории с кнопкой "Далее"
+                    self.story_manager.draw()
+                    # Уведомление ESC в углу (справа вверху)
+                    notice = "Нажмите ESC, чтобы пропустить предысторию"
+                    margin = 20
+                    arcade.draw_text(
+                        notice,
+                        self.width - margin,
+                        self.height - margin,
+                        arcade.color.LIGHT_GRAY,
+                        16,
+                        anchor_x="right",
+                        anchor_y="top",
+                        align="right",
+                    )
+                elif self.show_start_prompt:
+                    # Экран заставки с текстом "Нажмите ENTER чтобы продолжить"
+                    # Добавляем эффект мигания текста
+                    alpha = int(180 + 75 * abs(math.sin(self.prompt_display_timer * 2.0)))
+                    arcade.draw_text(
+                        "Нажмите ENTER чтобы продолжить",
+                        self.width // 2,
+                        self.height // 2,
+                        (*arcade.color.LIGHT_GREEN[:3], alpha),
+                        28,
+                        anchor_x="center",
+                        anchor_y="center",
+                        bold=True
+                    )
+                    # Добавляем подсказку о пропуске истории
+                    if hasattr(self, 'story_lines') and len(self.story_lines) > 0:
+                        skip_text = "Нажмите ESCAPE чтобы пропустить предысторию"
+                        arcade.draw_text(
+                            skip_text,
+                            self.width // 2,
+                            self.height // 2 - 50,
+                            (*arcade.color.GRAY[:3], alpha // 2),
+                            18,
+                            anchor_x="center",
+                            anchor_y="center",
+                        )
+            else:
+                # Still generating in story phase? Show spinner
+                self._draw_spinner()
+
+        elif self.status in ("pending", "generating"):
+             self._draw_spinner()
 
         if self.error:
             msg = f"Ошибка генерации: {self.error}"
             arcade.draw_text(msg, self.width // 2, self.height // 2, arcade.color.WHITE, 24,
                              anchor_x="center", anchor_y="center", align="center",
                              width=int(self.width * 0.8), multiline=True)
-            return
 
-        if self.status == "pending" or self.status == "generating":
-            w, h = self.width, self.height
-            arcade.draw_lrbt_rectangle_filled(0, w, 0, h, (0, 0, 0, 180))
-            text = "Генерация карты..."
-            r = int(min(w, h) * 0.06)
-            text_y = h // 2 + int(r * 0.8)
-            arcade.draw_text(text, w // 2, text_y, arcade.color.WHITE, 28, anchor_x="center", anchor_y="center", bold=True)
-            r = int(min(w, h) * 0.06)
-            cx, cy = w // 2, h // 2 - r * 2
-            arcade.draw_arc_outline(cx, cy, r * 2, r * 2, arcade.color.DARK_GRAY, 0, 360, 6)
-            sa = self._spinner_angle
-            arcade.draw_arc_outline(cx, cy, r * 2, r * 2, arcade.color.LIGHT_BLUE, sa, sa + 120, 8)
-            return
+        # Draw Fading Overlay (Always on top)
+        if self.fade_alpha > 0:
+            arcade.draw_lrbt_rectangle_filled(0, self.width, 0, self.height, (0, 0, 0, int(self.fade_alpha)))
 
-        if self.status == "done":
-            if self.current_story_line:
-                bg_h = 160
-                center_y = self.height // 2
-                arcade.draw_lrbt_rectangle_filled(
-                    0, self.width, center_y - bg_h // 2, center_y +
-                    bg_h // 2, (0, 0, 0, 180)
-                )
-                arcade.draw_text(
-                    self.current_story_line,
-                    self.width // 2,
-                    center_y,
-                    arcade.color.WHITE,
-                    22,
-                    anchor_x="center",
-                    anchor_y="center",
-                    align="center",
-                    width=int(self.width * 0.85),
-                    multiline=True,
-                )
-                # Draw the story UI with the next button
-                self.story_manager.draw()
-                # Corner ESC notification (top-right)
-                notice = "Нажмите ESC, чтобы пропустить предысторию"
-                margin = 20
-                arcade.draw_text(
-                    notice,
-                    self.width - margin,
-                    self.height - margin,
-                    arcade.color.LIGHT_GRAY,
-                    16,
-                    anchor_x="right",
-                    anchor_y="top",
-                    align="right",
-                )
-            elif self.show_start_prompt:
-                # Экран заставки с текстом "Нажмите ENTER чтобы продолжить"
-                # Добавляем эффект мигания текста
-                alpha = int(180 + 75 * abs(math.sin(self.prompt_display_timer * 2.0)))
-                arcade.draw_text(
-                    "Нажмите ENTER чтобы продолжить",
-                    self.width // 2,
-                    self.height // 2,
-                    (*arcade.color.LIGHT_GREEN[:3], alpha),
-                    28,
-                    anchor_x="center",
-                    anchor_y="center",
-                    bold=True
-                )
-                # Добавляем подсказку о пропуске истории
-                if hasattr(self, 'story_lines') and len(self.story_lines) > 0:
-                    skip_text = "Нажмите ESCAPE чтобы пропустить предысторию"
-                    arcade.draw_text(
-                        skip_text,
-                        self.width // 2,
-                        self.height // 2 - 50,
-                        (*arcade.color.GRAY[:3], alpha // 2),
-                        18,
-                        anchor_x="center",
-                        anchor_y="center",
-                    )
+    def _draw_spinner(self):
+        w, h = self.width, self.height
+        arcade.draw_lrbt_rectangle_filled(0, w, 0, h, (0, 0, 0, 180))
+        text = "Генерация карты..."
+        r = int(min(w, h) * 0.06)
+        text_y = h // 2 + int(r * 0.8)
+        arcade.draw_text(text, w // 2, text_y, arcade.color.WHITE, 28, anchor_x="center", anchor_y="center", bold=True)
+        r = int(min(w, h) * 0.06)
+        cx, cy = w // 2, h // 2 - r * 2
+        arcade.draw_arc_outline(cx, cy, r * 2, r * 2, arcade.color.DARK_GRAY, 0, 360, 6)
+        sa = self._spinner_angle
+        arcade.draw_arc_outline(cx, cy, r * 2, r * 2, arcade.color.LIGHT_BLUE, sa, sa + 120, 8)
+
+    def _stop_music(self):
+        if self.bg_music_player:
+            try:
+                arcade.stop_sound(self.bg_music_player)
+            except Exception:
+                pass
+            self.bg_music_player = None
 
     def on_update(self, delta_time):
+        # Fading logic
+        if self.fade_state == "in":
+            self.fade_alpha -= self.fade_speed * delta_time
+            if self.fade_alpha <= 0:
+                self.fade_alpha = 0
+                self.fade_state = "idle"
+        elif self.fade_state == "out":
+            self.fade_alpha += self.fade_speed * delta_time
+            if self.fade_alpha >= 255:
+                self.fade_alpha = 255
+                self.fade_state = "in"
+                # Switch phase
+                if self.next_phase is not None:
+                    self.current_phase = self.next_phase
+                    self.next_phase = None
+                    # Special handling for game switch
+                    if self.current_phase == self.PHASE_LOADING:
+                        self._perform_game_switch()
+
+        # Video update
+        if self.current_phase == self.PHASE_VIDEO and self.fade_state != "out":
+            if self.video_player:
+                try:
+                    if self.video_player.source and self.video_player.source.video_format:
+                        # Pyglet 2.0+ uses .texture property, older versions used .get_texture()
+                        if hasattr(self.video_player, 'texture'):
+                            self.video_texture = self.video_player.texture
+                        elif hasattr(self.video_player, 'get_texture'):
+                            self.video_texture = self.video_player.get_texture()
+                    
+                    # Check if video finished
+                    # Using a small buffer for duration check
+                    duration = self.video_player.source.duration
+                    if duration is not None and self.video_player.time >= duration - 0.1:
+                        self._stop_video()
+                except Exception as e:
+                    print(f"Video update error: {e}")
+                    self._stop_video()
+            else:
+                self.current_phase = self.PHASE_TRANSITION
+        
         if self.story_audio_player and hasattr(self.story_audio_player, 'time'):
-            # Debug: print playback time occasionally
+            # Отладка: периодически выводить время воспроизведения
             if int(time.time() * 10) % 20 == 0:
                  pass # print(f"Playback time: {self.story_audio_player.time}")
 
@@ -310,48 +492,68 @@ class LoadingView(arcade.View):
         if self._switch_when_done and self.status == "done" and self.window:
             self._switch_when_done = False
             self._switch_scheduled = False
-            next_view = GameWindow(
-                difficulty=ProjectSettings.Game.DIFFICULTY_EASY,
-                load_save=self.load_save,
-                map_payload=self.map_payload,
-                map_name=self.map_name,
-                spawn_corner=self.spawn_corner,
-                level_override=1
-            )
-            self.window.show_view(next_view)
+            self._trigger_fade_out(self.PHASE_LOADING)
 
         if self.status == "done":
-            if not self.story_initialized:
-                self._init_story()
-                self.story_initialized = True
-            
-            if not self.story_lines and not self.current_story_line:
-                self.show_start_prompt = True
-                # Increment timer when prompt is shown
-                self.prompt_display_timer += delta_time
-            else:
-                self._update_story(delta_time)
+            if self.current_phase == self.PHASE_STORY:
+                if not self.story_initialized:
+                    self._init_story()
+                    self.story_initialized = True
+                
+                if not self.story_lines and not self.current_story_line:
+                    self.show_start_prompt = True
+                    # Увеличение таймера при показе приглашения
+                    self.prompt_display_timer += delta_time
+                else:
+                    self._update_story(delta_time)
 
         if self.story_manager:
             self.story_manager.on_update(delta_time)
-        if self.status in ("pending", "generating") or self._enter_loading_active:
+        if self.status in ("pending", "generating"):
             self._spinner_angle = (self._spinner_angle + self._spinner_speed * delta_time) % 360.0
-        if self._enter_loading_active and self.window:
-            self._enter_loading_timer += delta_time
-            if self._enter_loading_timer >= self._enter_loading_duration:
-                self._enter_loading_active = False
-                self._enter_loading_timer = 0.0
-                next_view = GameWindow(
-                    difficulty=ProjectSettings.Game.DIFFICULTY_EASY,
-                    load_save=self.load_save,
-                    map_payload=self.map_payload,
-                    map_name=self.map_name,
-                    spawn_corner=self.spawn_corner,
-                    level_override=1
-                )
-                self.window.show_view(next_view)
+
+    def _perform_game_switch(self):
+        """Switch to the GameWindow after fading out."""
+        self._stop_music()
+        
+        # Stop any story audio
+        if self.story_audio_player:
+            try:
+                if hasattr(self.story_audio_player, "pause"):
+                    self.story_audio_player.pause()
+                arcade.stop_sound(self.story_audio_player)
+            except Exception:
+                pass
+            self.story_audio_player = None
+            
+        if self.afplay_process:
+            try:
+                self.afplay_process.terminate()
+                self.afplay_process = None
+            except Exception:
+                pass
+
+        next_view = GameWindow(
+            difficulty=ProjectSettings.Game.DIFFICULTY_EASY,
+            load_save=self.load_save,
+            map_payload=self.map_payload,
+            map_name=self.map_name,
+            spawn_corner=self.spawn_corner,
+            level_override=1
+        )
+        self.window.show_view(next_view)
 
     def on_key_press(self, symbol, modifiers):
+        if self.current_phase == self.PHASE_VIDEO:
+            if symbol == arcade.key.ESCAPE or symbol == arcade.key.ENTER:
+                self._stop_video()
+            return
+
+        if self.current_phase == self.PHASE_TRANSITION:
+            if symbol == arcade.key.ENTER or symbol == arcade.key.ESCAPE:
+                self._trigger_fade_out(self.PHASE_STORY)
+            return
+
         if symbol == arcade.key.ESCAPE and self.status == "done":
             if self.current_story_line or (hasattr(self, 'story_lines') and len(self.story_lines) > 0):
                 if self.story_audio_player:
@@ -381,8 +583,9 @@ class LoadingView(arcade.View):
                 self.story_manager.disable()
                 self.current_story_line = None
                 self.show_start_prompt = False
-                self._enter_loading_active = True
-                self._enter_loading_timer = 0.0
+                
+                # Use fading system instead of _enter_loading_active
+                self._trigger_fade_out(self.PHASE_LOADING)
                 return
             self.status = "generating"
             self.progress_text = "Идет генерация карты"
@@ -435,11 +638,11 @@ class LoadingView(arcade.View):
             0) if self.story_lines else None
         self.current_story_audio_index = 0
         self.story_line_timer = self.story_line_duration
-        self.story_start_time = time.time() # Track when story started
+        self.story_start_time = time.time() # Отслеживание времени начала истории
         
         if self.current_story_line:
             self.play_story_audio_line(self.current_story_audio_index)
-            # Enable story UI when there's a story line to show
+            # Включение UI истории, когда есть строка истории для показа
             self.story_manager.enable()
 
     def _update_story(self, delta_time):
@@ -506,7 +709,7 @@ class LoadingView(arcade.View):
                                 
                     except Exception as e:
                         # print(f"Pyglet error: {e}")
-                        # Fallback to arcade
+                        # Откат к arcade
                         try:
                             sound = arcade.load_sound(audio_path)
                             if sound:
@@ -521,7 +724,7 @@ class LoadingView(arcade.View):
                             pass
 
                     if duration > 0:
-                        self.story_line_duration = duration + 0.5 # Add small buffer
+                        self.story_line_duration = duration + 0.5 # Добавить небольшой буфер
                         self.story_line_timer = self.story_line_duration
                         
                     # print(f"Воспроизводится аудиофайл: {audio_path}, длительность: {duration}")

@@ -5,35 +5,37 @@ class GameOverView(arcade.View):
     def __init__(self, game_view):
         super().__init__()
         self.game_view = game_view
+        
+        # Создание макета
         self.ui_manager = arcade.gui.UIManager()
         self.ui_manager.enable()
-        
-        # Create layout
-        self.v_box = arcade.gui.UIBoxLayout()
-        
-        # Game Over Label
-        game_over_label = arcade.gui.UILabel(
+
+        # Надпись "Конец игры"
+        self.text_area = arcade.gui.UILabel(
             text="ИГРА ОКОНЧЕНА",
             font_size=50,
             font_name="Kenney Future",
             text_color=arcade.color.RED,
-            bold=True
+            width=400,
+            align="center"
         )
-        self.v_box.add(game_over_label.with_space_around(bottom=20))
         
-        # Restart Button
+        # Кнопка перезапуска
         restart_button = arcade.gui.UIFlatButton(text="Заново", width=200)
-        self.v_box.add(restart_button.with_space_around(bottom=20))
         
-        # Exit Button
+        # Кнопка выхода
         exit_button = arcade.gui.UIFlatButton(text="Выход", width=200)
-        self.v_box.add(exit_button.with_space_around(bottom=20))
-        
-        # Handlers
-        restart_button.on_click = self.on_restart_click
-        exit_button.on_click = self.on_exit_click
-        
-        # Anchor widget
+
+        # Обработчики
+        restart_button.on_click = self.on_restart
+        exit_button.on_click = self.on_exit
+
+        # Виджет якоря
+        self.v_box = arcade.gui.UIBoxLayout(space_between=20)
+        self.v_box.add(self.text_area)
+        self.v_box.add(restart_button)
+        self.v_box.add(exit_button)
+
         self.ui_manager.add(
             arcade.gui.UIAnchorWidget(
                 anchor_x="center_x",
@@ -41,19 +43,17 @@ class GameOverView(arcade.View):
                 child=self.v_box)
         )
 
-    def on_restart_click(self, event):
-        # Reset game
+    def on_restart(self, event):
+        # Сброс игры
         self.game_view.setup_game()
         self.window.show_view(self.game_view)
-        
-    def on_exit_click(self, event):
-        arcade.close_window()
+
+    def on_exit(self, event):
+        arcade.exit()
 
     def on_draw(self):
         self.clear()
-        # Draw game view in background (dimmed) if possible, or just black
-        # self.game_view.on_draw()
-        arcade.draw_rectangle_filled(self.window.width / 2, self.window.height / 2,
-                                     self.window.width, self.window.height,
-                                     (0, 0, 0, 200))
-        self.ui_manager.draw()
+        
+        # Отрисовка игрового вида на фоне (затемненного) если возможно, или просто черный
+        if self.game_view:
+             self.game_view.on_draw()

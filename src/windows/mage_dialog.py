@@ -10,10 +10,10 @@ class MageDialog:
         self.setup_ui()
 
     def setup_ui(self):
-        # Create a vertical box layout to hold the content
+        # Создаем вертикальный макет для содержимого
         self.v_box = arcade.gui.UIBoxLayout(space_between=20)
         
-        # Title
+        # Заголовок
         title_label = arcade.gui.UILabel(
             text="Маг",
             font_size=20,
@@ -22,7 +22,7 @@ class MageDialog:
         )
         self.v_box.add(title_label)
         
-        # Text
+        # Текст
         text_label = arcade.gui.UILabel(
             text="Здесь будет диалоговое окно",
             font_size=14,
@@ -81,8 +81,8 @@ class MageDialog:
         
     def on_mouse_press(self, x, y, button, modifiers):
         if self.is_visible:
-            # Check if click is outside the dialog
-            # Note: rect is available after layout
+            # Проверка клика вне диалогового окна
+            # Примечание: rect доступен после компоновки
             if self.bg_wrapper.rect and not self.bg_wrapper.rect.collide_with_point(x, y):
                 self.hide()
                 return True

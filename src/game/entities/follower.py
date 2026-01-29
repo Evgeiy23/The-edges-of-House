@@ -3,29 +3,29 @@ import math
 
 class Follower:
     """
-    Base class or Mixin for entities that need to follow a target (like the player)
-    while avoiding obstacles using A* pathfinding.
+    Базовый класс или миксин для сущностей, которым нужно следовать за целью (например, за игроком),
+    избегая препятствий с использованием поиска пути A*.
     """
     def __init__(self):
         self.path = []
         self.path_index = 0
         self.repath_timer = 0.0
-        self.repath_interval = 0.5  # Recalculate path every 0.5 seconds
+        self.repath_interval = 0.5  # Пересчитывать путь каждые 0.5 секунды
         self.last_target_grid_pos = None
 
     def move_along_path(self, delta_time, current_pixel_pos, target_pixel_pos, move_speed, tile_size, dungeon_map):
         """
-        Calculates movement vector to follow the path.
-        Returns (dx, dy) tuple for movement.
+        Вычисляет вектор движения для следования по пути.
+        Возвращает кортеж (dx, dy) для движения.
         """
         current_grid_pos = (int(current_pixel_pos[0] // tile_size), int(current_pixel_pos[1] // tile_size))
         target_grid_pos = (int(target_pixel_pos[0] // tile_size), int(target_pixel_pos[1] // tile_size))
         
         self.repath_timer -= delta_time
         
-        # Recalculate path if timer expired or target moved significantly
+        # Пересчитываем путь, если таймер истек или цель значительно переместилась
         if self.repath_timer <= 0 or self.last_target_grid_pos != target_grid_pos:
-            # Optimization: Check Line of Sight first
+            # Оптимизация: Сначала проверяем линию видимости
             if hasattr(dungeon_map, 'has_line_of_sight') and dungeon_map.has_line_of_sight(current_grid_pos, target_grid_pos):
                  self.path = [target_grid_pos]
             else:
@@ -36,30 +36,30 @@ class Follower:
             self.last_target_grid_pos = target_grid_pos
             
         if not self.path:
-            # Fallback to direct movement if no path (or adjacent)
+            # Запасной вариант: прямое движение, если нет пути (или рядом)
             return self._get_direct_vector(current_pixel_pos, target_pixel_pos, move_speed, delta_time)
 
-        # Get next waypoint
+        # Получаем следующую путевую точку
         if self.path_index < len(self.path):
             next_node = self.path[self.path_index]
             
-            # Check if we reached the next node (center of tile)
+            # Проверяем, достигли ли мы следующего узла (центр плитки)
             next_pixel_x = next_node[0] * tile_size + tile_size / 2
             next_pixel_y = next_node[1] * tile_size + tile_size / 2
             
             dist_to_node = math.sqrt((next_pixel_x - current_pixel_pos[0])**2 + (next_pixel_y - current_pixel_pos[1])**2)
             
-            if dist_to_node < tile_size * 0.1: # Close enough
+            if dist_to_node < tile_size * 0.1: # Достаточно близко
                 self.path_index += 1
                 if self.path_index >= len(self.path):
-                    # End of path - try moving directly to target to be precise
+                    # Конец пути - пытаемся двигаться прямо к цели для точности
                     return self._get_direct_vector(current_pixel_pos, target_pixel_pos, move_speed, delta_time)
                     
                 next_node = self.path[self.path_index]
                 next_pixel_x = next_node[0] * tile_size + tile_size / 2
                 next_pixel_y = next_node[1] * tile_size + tile_size / 2
 
-            # Move towards next node
+            # Движемся к следующему узлу
             angle = math.atan2(next_pixel_y - current_pixel_pos[1], next_pixel_x - current_pixel_pos[0])
             dx = math.cos(angle) * move_speed * delta_time
             dy = math.sin(angle) * move_speed * delta_time
@@ -78,7 +78,7 @@ class Follower:
         return math.cos(angle) * speed * dt, math.sin(angle) * speed * dt
 
     def _find_path(self, start, end, dungeon_map):
-        # A* Algorithm
+        # Алгоритм A*
         def heuristic(a, b):
             return abs(a[0] - b[0]) + abs(a[1] - b[1])
 
@@ -89,7 +89,7 @@ class Follower:
         f_score = {start: heuristic(start, end)}
         
         iterations = 0
-        max_iterations = 5000 # Increased limit for larger maps
+        max_iterations = 5000 # Увеличенный лимит для больших карт
         
         while open_set and iterations < max_iterations:
             iterations += 1

@@ -20,7 +20,7 @@ class DungeonMap:
         self.exit_door_positions = []  # Позиции прохода в комнату с выходом для закрытия
         self.exit_door_closed = False  # Флаг закрытия прохода
         self.collision_groups = {}
-        self.valid_spawn_coords = None # Cached list of valid spawn coordinates
+        self.valid_spawn_coords = None # Кэшированный список допустимых координат появления
 
         self.textures = {}
         self._load_textures()
@@ -63,7 +63,7 @@ class DungeonMap:
                                     not self.is_walkable(next_x, next_y)):
                                 stack.append((next_x, next_y))
 
-                    if group:  # Only add non-empty groups
+                    if group:  # Добавлять только непустые группы
                         self.collision_groups[group_id] = group
                         group_id += 1
 
@@ -73,25 +73,25 @@ class DungeonMap:
         return self.collision_groups
 
     def _load_textures(self):
-        # Default floor
-        self.textures[0] = self._load_tex("tile_0000.png")  # Corridor
-        self.textures[2] = self._load_tex("tile_0000.png")  # Room Floor
+        # Пол по умолчанию
+        self.textures[0] = self._load_tex("tile_0000.png")  # Коридор
+        self.textures[2] = self._load_tex("tile_0000.png")  # Пол комнаты
         
-        # Walls
+        # Стены
         self.textures[1] = self._load_tex("tile_0040.png")
         
-        # Floor variants (Walkable)
+        # Варианты пола (Проходимые)
         self.textures[10] = self._load_tex("tile_0024.png")
         self.textures[11] = self._load_tex("tile_0094.png")
         
-        # Decorations (Unwalkable)
+        # Декорации (Непроходимые)
         self.textures[20] = self._load_tex("tile_0082.png")
         self.textures[21] = self._load_tex("tile_0065.png")
         self.textures[22] = self._load_tex("tile_0063.png")
 
-        # Exit
-        # Keep default exit color or load texture if needed. 
-        # For now we rely on draw_map colors for exit (3), but we can add texture if available.
+        # Выход
+        # Оставить цвет выхода по умолчанию или загрузить текстуру, если необходимо. 
+        # Пока мы полагаемся на цвета draw_map для выхода (3), но мы можем добавить текстуру, если она доступна.
     
     def _load_tex(self, name):
         path = os.path.join("resources", "map", name)
@@ -102,18 +102,18 @@ class DungeonMap:
     def generate(self, game_cfg, spawn_corner=None):
         result = generate_dungeon(
             self.map_width, self.map_height, game_cfg, spawn_corner)
-        if len(result) == 7:  # Current function returns 7 values
+        if len(result) == 7:  # Текущая функция возвращает 7 значений
             (self.map_data, self.rooms, self.room_tile_map,
              self.corridor_tiles, self.exit_pos, self.exit_room_idx,
-             exit_door_positions) = result
-        else:  # Fallback for different return values
+             self.exit_door_positions) = result
+        else:  # Резервный вариант для других возвращаемых значений
             (self.map_data, self.rooms, self.room_tile_map,
              self.corridor_tiles, self.exit_pos, self.exit_room_idx) = result
 
         # self.create_collision_groups()
 
     def _apply_payload(self, payload):
-        """Load map data and metadata from a prepared payload instead of generating."""
+        """Загружает данные карты и метаданные из подготовленной полезной нагрузки вместо генерации."""
         self.map_data = payload.get("map_data", [])
         self.map_height = len(self.map_data)
         self.map_width = len(self.map_data[0]) if self.map_data else 0
@@ -133,7 +133,14 @@ class DungeonMap:
             normalized_tile_map[key] = val
         self.room_tile_map = normalized_tile_map
 
-        self.corridor_tiles = set(payload.get("corridor_tiles", set()))
+        # self.corridor_tiles = set(payload.get("corridor_tiles", set()))
+        # Безопасная загрузка corridor_tiles (преобразование из list в tuple для set)
+        raw_corridors = payload.get("corridor_tiles", [])
+        self.corridor_tiles = set()
+        for t in raw_corridors:
+            if isinstance(t, (list, tuple)) and len(t) >= 2:
+                self.corridor_tiles.add((int(t[0]), int(t[1])))
+
         exit_pos = payload.get("exit_pos")
         self.exit_pos = tuple(exit_pos) if exit_pos else None
         self.exit_room_idx = payload.get("exit_room_idx")
@@ -161,22 +168,22 @@ class DungeonMap:
         return None
 
     def get_wall_coords(self):
-        """Returns a list of all wall coordinates in a structured format."""
+        """Возвращает список всех координат стен в структурированном формате."""
         if not self.wall_list:
             self._cache_map_data()
         return self.wall_list
 
     def get_room_coords(self):
-        """Returns a list of all room center coordinates in a structured format."""
+        """Возвращает список всех координат центров комнат в структурированном формате."""
         if not self.room_center_list:
             self._cache_map_data()
         return self.room_center_list
 
     def is_walkable(self, x, y):
         tile_value = self.get_tile_value(x, y)
-        # 0, 2: Standard floors
-        # 3: Exit
-        # 10, 11: Floor variants
+        # 0, 2: Стандартные полы
+        # 3: Выход
+        # 10, 11: Варианты пола
         return tile_value in (0, 2, 3, 10, 11)
 
     def get_room_id(self, x, y):
@@ -202,7 +209,7 @@ class DungeonMap:
         self.create_collision_groups()  # Обновляем коллизии
 
     def get_valid_spawn_coords(self):
-        """Returns a list of all valid spawn coordinates."""
+        """Возвращает список всех допустимых координат появления."""
         if not self.valid_spawn_coords:
             self._cache_map_data()
         return self.valid_spawn_coords
@@ -220,7 +227,7 @@ class DungeonMap:
                     self.valid_spawn_coords.append((x, y))
                     
         for room in self.rooms:
-            # Calculate center
+            # Вычислить центр
             if isinstance(room, dict):
                 cx = (room.get('x1', 0) + room.get('x2', 0)) // 2
                 cy = (room.get('y1', 0) + room.get('y2', 0)) // 2
@@ -262,7 +269,7 @@ class DungeonMap:
                     err += dy
                 y += sy
                 
-        # Check end point too (though usually target is walkable if we want to go there)
+        # Также проверяем конечную точку (хотя обычно цель проходима, если мы хотим туда попасть)
         if not self.is_walkable(x1, y1):
             return False
             

@@ -4,7 +4,7 @@ import json
 import pyglet
 import warnings
 import argparse
-# Suppress all warnings including Arcade's PerformanceWarning
+# Подавить все предупреждения, включая PerformanceWarning от Arcade
 warnings.filterwarnings("ignore")
 from windows.start_window import StartWindow
 from project import ProjectSettings

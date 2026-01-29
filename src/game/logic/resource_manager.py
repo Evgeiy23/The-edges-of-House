@@ -14,7 +14,7 @@ class ResourceManager:
     
     def get_texture(self, file_path):
         """
-        Returns a cached texture. If not cached, loads it.
+        Возвращает кэшированную текстуру. Если не кэширована, загружает ее.
         """
         if file_path in self._textures:
             return self._textures[file_path]

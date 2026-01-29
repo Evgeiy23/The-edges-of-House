@@ -20,19 +20,19 @@ class BaseVendor:
         self.interaction_text = "Нажмите E чтобы поговорить"
         self.interaction_text_object = None
         
-        # UI optimization
+        # Оптимизация UI
         self.text_object = None
         self.last_text_content = ""
         
-        # To be implemented by subclasses
+        # Должно быть реализовано подклассами
         self._load_resources()
 
     def _load_resources(self):
-        """Load sprites and textures. Override in subclass."""
+        """Загрузка спрайтов и текстур. Переопределить в подклассе."""
         pass
 
     def _load_texture_from_path(self, path):
-        """Helper to load texture safely"""
+        """Вспомогательный метод для безопасной загрузки текстур"""
         if not os.path.exists(path) or not os.access(path, os.R_OK):
             # print(f"[{self.__class__.__name__}] Texture not found/readable: {path}")
             return None
@@ -55,7 +55,7 @@ class BaseVendor:
             self.sprite_list.draw()
 
     def draw_ui(self, player_pos, camera_pos=(0,0)):
-        # Distance check
+        # Проверка дистанции
         dx = self.draw_pos[0] - player_pos[0]
         dy = self.draw_pos[1] - player_pos[1]
         dist = math.sqrt(dx*dx + dy*dy)

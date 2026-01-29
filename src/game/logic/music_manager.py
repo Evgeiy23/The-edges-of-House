@@ -8,7 +8,7 @@ from game.logic.music import stop_player
 class MusicManager:
     _instance = None
     
-    # Priorities
+    # Приоритеты
     PRIORITY_NONE = 0
     PRIORITY_MENU = 10
     PRIORITY_LEVEL = 20
@@ -16,7 +16,7 @@ class MusicManager:
     PRIORITY_BOSS = 40
     PRIORITY_GAME_OVER = 50
 
-    # Paths (relative to project root)
+    # Пути (относительно корня проекта)
     PATH_MENU_MAIN = os.path.join("music", "background_music", "scary_horror_theme.mp3")
     PATH_MENU_SETTINGS = os.path.join("music", "background_music", "menu_background_theme.mp3")
     
@@ -45,21 +45,21 @@ class MusicManager:
         self.current_track_path = None
         self.target_volume = 1.0
         self.current_volume = 0.0
-        self.fade_speed = 0.5 # Volume change per second
-        self.state = "idle" # idle, fading_in, fading_out, playing
+        self.fade_speed = 0.5 # Изменение громкости в секунду
+        self.state = "idle" # idle, fading_in, fading_out, playing (ожидание, нарастание, затухание, воспроизведение)
         
-        # Stored request
+        # Сохраненный запрос
         self.pending_request = None
         
-        # Determine root path (e:\Projects\The-edges-of-House)
-        # assuming this file is in src/game/logic/
+        # Определение корневого пути (e:\Projects\The-edges-of-House)
+        # предполагается, что этот файл находится в src/game/logic/
         self.root_path = os.getcwd()
 
     def get_full_path(self, relative_path):
-        # Try relative to CWD first
+        # Сначала пробуем относительно текущего рабочего каталога
         if os.path.exists(relative_path):
             return relative_path
-        # Try joining with root
+        # Пробуем объединить с корнем
         full = os.path.join(self.root_path, relative_path)
         if os.path.exists(full):
             return full
@@ -74,11 +74,11 @@ class MusicManager:
             print(f"MusicManager: File not found: {relative_path}")
             return
 
-        # If higher priority is already playing, ignore
+        # Если уже играет трек с более высоким приоритетом, игнорируем
         if self.current_player and self.current_priority > priority:
             return
 
-        # If same track is playing, just ensure volume/priority
+        # Если играет тот же трек, просто обеспечиваем громкость/приоритет
         if self.current_track_path == full_path and self.current_player:
             self.current_priority = priority
             self.target_volume = volume
@@ -86,7 +86,7 @@ class MusicManager:
                 self.state = "fading_in"
             return
             
-        # Queue switch
+        # Очередь переключения
         self.pending_request = {
             "path": full_path,
             "priority": priority,
@@ -96,10 +96,10 @@ class MusicManager:
         self.state = "fading_out"
 
     def stop(self, priority_threshold=0):
-        # Stop if current priority is <= threshold
+        # Остановить, если текущий приоритет <= порога
         if self.current_priority <= priority_threshold:
              self.state = "fading_out"
-             self.pending_request = None # No new track
+             self.pending_request = None # Нет нового трека
              self.current_priority = 0
 
     def update(self, delta_time):
@@ -110,7 +110,7 @@ class MusicManager:
                 self.state = "idle"
             return
 
-        # Fading Out
+        # Затухание
         if self.state == "fading_out":
             self.current_volume -= self.fade_speed * delta_time
             if self.current_volume <= 0:
@@ -119,7 +119,7 @@ class MusicManager:
                     stop_player(self.current_player)
                     self.current_player = None
                 
-                # Switch to pending if exists
+                # Переключиться на ожидающий, если есть
                 if self.pending_request:
                     self._start_pending()
                 else:
@@ -127,7 +127,7 @@ class MusicManager:
             else:
                  self._set_volume(self.current_volume)
 
-        # Fading In
+        # Нарастание
         elif self.state == "fading_in":
              if self.current_volume < self.target_volume:
                  self.current_volume += self.fade_speed * delta_time
@@ -137,7 +137,7 @@ class MusicManager:
                  self._set_volume(self.current_volume)
              else:
                  self.state = "playing"
-                 # Ensure volume is set to target
+                 # Убедиться, что громкость установлена на целевую
                  self._set_volume(self.target_volume)
 
     def _start_pending(self):
@@ -146,7 +146,7 @@ class MusicManager:
         path = req["path"]
         
         try:
-            # Try loading with pyglet first for mp3
+            # Попробовать загрузить с помощью pyglet сначала для mp3
             if path.endswith(".mp3"):
                 media = pyglet.media.load(path, streaming=False)
                 self.current_player = media.play()
@@ -168,10 +168,10 @@ class MusicManager:
 
     def set_volume(self, volume):
         self.target_volume = max(0.0, min(1.0, volume))
-        # If we are in playing state, immediately update target (fade logic handles gradual, 
-        # but for settings slider we might want immediate feedback or just set target)
-        # For now, let's just set target and if playing/fading_in, ensure we move towards it.
-        # If we want immediate update for slider:
+        # Если мы в состоянии воспроизведения, немедленно обновляем цель (логика затухания обрабатывает плавность,
+        # но для ползунка настроек мы можем хотеть немедленной обратной связи или просто установить цель)
+        # Пока просто установим цель, и если воспроизведение/нарастание, убедимся, что двигаемся к ней.
+        # Если хотим немедленного обновления для ползунка:
         if self.current_player:
             try:
                 self.current_player.volume = self.target_volume

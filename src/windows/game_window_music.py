@@ -17,7 +17,7 @@ class GameWindowMusic:
         if not ProjectSettings.MUSIC_ENABLED:
             return
             
-        # Level 40 Easter Egg
+        # Пасхалка 40 уровня
         if hasattr(self, 'level') and self.level == 40:
             MusicManager().play(
                 MusicManager.PATH_LEVEL_40,
@@ -27,8 +27,8 @@ class GameWindowMusic:
             )
             return
 
-        # Regular level music
-        # Pick one random track from options if not already selected
+        # Обычная музыка уровня
+        # Выбрать один случайный трек из вариантов, если еще не выбран
         if not hasattr(self, 'current_level_music_path') or self.current_level_music_path is None:
             self.current_level_music_path = random.choice(MusicManager.PATH_LEVEL_OPTIONS)
         
@@ -41,7 +41,7 @@ class GameWindowMusic:
 
     def stop_game_music(self):
         """Остановка игровой музыки"""
-        # Stop everything up to level priority (including level music)
+        # Остановить все до приоритета уровня (включая музыку уровня)
         MusicManager().stop(priority_threshold=MusicManager.PRIORITY_LEVEL_SPECIAL)
 
     def play_suspense_music(self):
@@ -58,11 +58,11 @@ class GameWindowMusic:
 
     def stop_suspense_music(self):
         """Останавливает музыку комнаты с выходом"""
-        # Stop boss music.
+        # Остановить музыку босса.
         MusicManager().stop(priority_threshold=MusicManager.PRIORITY_BOSS)
         
-        # Optionally resume game music if we are not exiting game
-        # self.play_game_music() # This might be risky if called during cleanup
+        # Опционально возобновить музыку игры, если мы не выходим из игры
+        # self.play_game_music() # Это может быть рискованно, если вызвано во время очистки
         
     def update_music(self, delta_time):
         MusicManager().update(delta_time)

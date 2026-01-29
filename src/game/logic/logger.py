@@ -8,8 +8,8 @@ class GameLogger:
         if cls._instance is None:
             cls._instance = super(GameLogger, cls).__new__(cls)
             cls._instance.log_file = "game_events.log"
-            # Create/clear log file on startup if needed, or append
-            # For now, let's append
+            # Создать/очистить файл журнала при запуске, если нужно, или добавить
+            # Пока что давайте добавим
         return cls._instance
 
     def log(self, message):

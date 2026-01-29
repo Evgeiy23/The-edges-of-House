@@ -78,7 +78,7 @@ class GameWindowRendering:
                 screen_x = x * tile_size_float
                 cx = screen_x + tile_size_float / 2
                 
-                # Try to use texture
+                # Попытка использовать текстуру
                 tex = self.dungeon_map.textures.get(value) if hasattr(self.dungeon_map, 'textures') else None
                 
                 if tex:
@@ -88,27 +88,27 @@ class GameWindowRendering:
                     key = 'visible' if visible else 'seen'
                     texture_batches[value][key].append((cx, cy))
                 else:
-                    # Fallback logic
+                    # Логика отката
                     left = screen_x
                     right = screen_x + tile_size_float
                     
-                    if value == 3: # Exit
+                    if value == 3: # Выход
                         key = 'visible_exit' if visible else 'seen_exit'
                         batches[key].append((left, right, bottom, top))
-                    elif value == 1: # Wall
+                    elif value == 1: # Стена
                         key = 'visible_wall' if visible else 'seen_wall'
                         batches[key].append((left, right, bottom, top))
-                    else: # Floor
+                    else: # Пол
                         key = 'visible_floor' if visible else 'seen_floor'
                         batches[key].append((left, right, bottom, top))
 
-        # Draw textures
+        # Отрисовка текстур
         for val, lists in texture_batches.items():
             tex = self.dungeon_map.textures.get(val)
             if not tex:
                 continue
             
-            # Visible
+            # Видимые
             for cx, cy in lists['visible']:
                 left = cx - tile_size / 2
                 right = cx + tile_size / 2
@@ -117,7 +117,7 @@ class GameWindowRendering:
                 rect = arcade.types.Rect(left, right, bottom, top, tile_size, tile_size, cx, cy)
                 arcade.draw_texture_rect(tex, rect)
                 
-            # Seen (Tinted)
+            # Виденные (Затемненные)
             color = arcade.types.Color(100, 100, 110)
             for cx, cy in lists['seen']:
                 left = cx - tile_size / 2
@@ -142,7 +142,7 @@ class GameWindowRendering:
                     arcade.draw_lrbt_rectangle_filled(
                         left, right, bottom, top, color)
 
-        # Fog of war
+        # Туман войны
         if self.visibility_grid:
             for y in range(view_bottom_clamped, view_top_clamped):
                 vis_row = self.visibility_grid[y]
@@ -159,7 +159,7 @@ class GameWindowRendering:
                     arcade.draw_lrbt_rectangle_filled(
                         screen_x, screen_x + tile_size, bottom, top, fog_color)
 
-        # Save point
+        # Точка сохранения
         if self.save_point_pos:
             save_x, save_y = self.save_point_pos
             if use_grid and self.dungeon_map and 0 <= save_x < self.dungeon_map.map_width and 0 <= save_y < self.dungeon_map.map_height:
@@ -174,12 +174,13 @@ class GameWindowRendering:
                         color
                     )
 
-        # Player
+        # Игрок
         if self.player:
             self.player.draw()
+            # Отрисовка полоски здоровья игрока над игроком
             self.draw_player_health_above()
 
-        # Boss visibility check
+        # Проверка видимости босса
         if self.dungeon_map and self.player and self.bosses:
             player_room_id = self.dungeon_map.get_room_id(
                 self.player.pos[0], self.player.pos[1])
@@ -192,14 +193,14 @@ class GameWindowRendering:
                             boss.visible = True
                             self.shake_camera(10.0, 0.5)
 
-        # Draw bosses
+        # Отрисовка боссов
         for boss in self.bosses:
             if boss and boss.is_alive() and hasattr(boss, 'visible') and boss.visible:
                 boss_grid_x = int(boss.pos[0])
                 boss_grid_y = int(boss.pos[1])
                 
-                # Fog of War check for enemies
-                # Hide if not in currently visible area
+                # Проверка тумана войны для врагов
+                # Скрыть, если не в видимой области
                 if self.use_fov and self.visibility_grid:
                     if (0 <= boss_grid_y < len(self.visibility_grid) and 
                         0 <= boss_grid_x < len(self.visibility_grid[0])):
@@ -215,7 +216,7 @@ class GameWindowRendering:
                 if is_visible:
                     boss.draw()
 
-        # Draw chests if visible
+        # Отрисовка сундуков, если видимы
         if self.chest_sprites and self.player and self.dungeon_map:
             chests_to_draw = arcade.SpriteList()
             for chest in self.chest_sprites:
@@ -233,7 +234,7 @@ class GameWindowRendering:
             if len(chests_to_draw) > 0:
                 chests_to_draw.draw()
 
-        # Draw dropped items if visible
+        # Отрисовка выброшенных предметов, если видимы
         if self.dropped_item_sprites and self.player and self.dungeon_map:
             items_to_draw = arcade.SpriteList()
             for item in self.dropped_item_sprites:
@@ -252,10 +253,10 @@ class GameWindowRendering:
                 items_to_draw.draw()
 
         if self.ambient_sprites:
-            # Cull ambient sprites based on visibility
+            # Отсечение фоновых спрайтов на основе видимости
             visible_ambient = arcade.SpriteList()
             for s in self.ambient_sprites:
-                # Update grid position if moving
+                # Обновление позиции в сетке при движении
                 if hasattr(s, 'change_x') and (s.change_x != 0 or s.change_y != 0):
                     s.grid_x = int(s.center_x / self.tile_size)
                     s.grid_y = int(s.center_y / self.tile_size)
@@ -274,7 +275,7 @@ class GameWindowRendering:
             if len(visible_ambient) > 0:
                 visible_ambient.draw()
 
-        # Draw Sage
+        # Отрисовка Мудреца
         if hasattr(self, 'sage') and self.sage:
             sage_x = int(self.sage.pos[0])
             sage_y = int(self.sage.pos[1])
@@ -290,7 +291,7 @@ class GameWindowRendering:
                 if self.player:
                     self.sage.draw_ui(self.player.draw_pos)
 
-        # Draw Mages
+        # Отрисовка Магов
         if hasattr(self, 'mages') and self.mages:
             for mage in self.mages:
                 mage_x = int(mage.pos[0])
@@ -307,48 +308,47 @@ class GameWindowRendering:
                     if self.player:
                         mage.draw_ui(self.player.draw_pos)
 
-        # Draw Ghosts (Batched)
+        # Отрисовка призраков (Пакетом)
         if hasattr(self, 'ghost_manager') and self.ghost_manager:
-            # self.ghost_manager.sprite_list.draw() # Draw all (fast)
+            # self.ghost_manager.sprite_list.draw() # Рисовать все (быстро)
             
-            # Or better: draw active/visible ones if we want to support visibility system strictly
-            # But SpriteList.draw() is very fast, so maybe just draw all?
-            # However, we have a visibility system (fog of war).
-            # If we want to respect Fog of War, we must only draw visible ghosts.
+            # Или лучше: рисовать активных/видимых, если хотим строго поддерживать систему видимости
+            # Но SpriteList.draw() очень быстр, так что может просто рисовать все?
+            # Однако, у нас есть система видимости (туман войны).
+            # Если мы хотим учитывать туман войны, мы должны рисовать только видимых призраков.
             
-            # Since SpriteList doesn't easily support per-sprite visibility toggle without removing/adding,
-            # we can iterate and draw visible ones OR update the SpriteList alpha/visible property in update loop.
+            # Так как SpriteList не легко поддерживает переключение видимости по спрайтам без удаления/добавления,
+            # и мы используем draw_texture_rect или подобное в GhostManager.draw() (который рисует SpriteList)
             
-            # For "Optimization" requested by user, we should rely on the manager's active list
-            # AND the visibility grid.
+            # Для "Оптимизации", запрошенной пользователем, мы должны полагаться на активный список менеджера
+            # И сетку видимости.
             
-            # Let's use the individual draw for now but restricted to active_ghosts
-            # OR create a temporary SpriteList for visible ghosts every frame (might be slow)
-            # OR just update the alpha of sprites in the main list.
+            # Давайте использовать индивидуальную отрисовку пока, но ограниченную active_ghosts
+            # ИЛИ создавать временный SpriteList для видимых призраков каждый кадр (может быть медленно)
+            # ИЛИ просто обновлять альфу спрайтов в основном списке.
             
-            # Let's try iterating active ghosts (which are already spatially culled)
-            # and check visibility.
-            
-            visible_sprites = arcade.SpriteList()
-            targets = self.ghost_manager.active_ghosts if self.ghost_manager.active_ghosts else self.ghost_manager.ghosts
-            
-            for ghost in targets:
-                ghost_x = int(ghost.pos[0])
-                ghost_y = int(ghost.pos[1])
+            # Попробуем перебирать активных призраков (которые уже пространственно отсечены)
+            if self.visibility_grid:
+                visible_ghosts = arcade.SpriteList()
+                targets = self.ghost_manager.active_ghosts if self.ghost_manager.active_ghosts else self.ghost_manager.ghosts
                 
-                is_visible = False
-                if self.visibility_grid and 0 <= ghost_y < len(self.visibility_grid) and 0 <= ghost_x < len(self.visibility_grid[0]):
-                    is_visible = self.visibility_grid[ghost_y][ghost_x]
-                elif (ghost_x, ghost_y) in self.visible_tiles:
-                    is_visible = True
+                for ghost in targets:
+                    ghost_x = int(ghost.pos[0])
+                    ghost_y = int(ghost.pos[1])
                     
-                if is_visible:
-                    if ghost.sprite:
-                        visible_sprites.append(ghost.sprite)
-            
-            visible_sprites.draw()
+                    is_visible = False
+                    if 0 <= ghost_y < len(self.visibility_grid) and 0 <= ghost_x < len(self.visibility_grid[0]):
+                        is_visible = self.visibility_grid[ghost_y][ghost_x]
+                    elif (ghost_x, ghost_y) in self.visible_tiles:
+                        is_visible = True
+                        
+                    if is_visible:
+                        if ghost.sprite:
+                            visible_ghosts.append(ghost.sprite)
+                
+                visible_ghosts.draw()
 
-        # Draw Merchant
+        # Отрисовка Торговца
         if hasattr(self, 'merchant') and self.merchant:
             merchant_grid_x = int(self.merchant.pos[0])
             merchant_grid_y = int(self.merchant.pos[1])
@@ -632,14 +632,14 @@ class GameWindowRendering:
                                                   mini_y - minimap_scale,
                                                   mini_y, color)
 
-        # Player (Green)
+        # Игрок (Зеленый)
         player_mini_x = minimap_x + self.player.pos[0] * minimap_scale
         player_mini_y = minimap_y - self.player.pos[1] * minimap_scale
         
         arcade.draw_circle_filled(
             player_mini_x, player_mini_y, minimap_scale * 0.8, arcade.color.GREEN)
 
-        # Bosses (Yellow) - Instant position
+        # Боссы (Желтый) - Мгновенная позиция
         for boss in self.bosses:
             if boss and boss.is_alive():
                 boss_mini_x = minimap_x + boss.pos[0] * minimap_scale

@@ -6,7 +6,7 @@ from utils import get_savegame_path
 
 
 class GameStartDialog(arcade.View):
-    DIFFICULTY_EASY = "easy"  # Only easy difficulty is available
+    DIFFICULTY_EASY = "easy"  # Доступна только легкая сложность
 
     def __init__(self):
         super().__init__()
@@ -14,7 +14,7 @@ class GameStartDialog(arcade.View):
         self.manager = arcade.gui.UIManager()
         self.manager.enable()
 
-        self.selected_difficulty = self.DIFFICULTY_EASY  # Always easy
+        self.selected_difficulty = self.DIFFICULTY_EASY  # Всегда легко
         self.load_save = False
         self.start_game = False
         self.transition_alpha = 0
@@ -98,7 +98,7 @@ class GameStartDialog(arcade.View):
 
             main_box.add(game_mode_box)
 
-        # Difficulty selection removed - only easy difficulty is available
+        # Выбор сложности удален - доступна только легкая сложность
 
         buttons_box = arcade.gui.UIBoxLayout(vertical=False, space_between=20)
 
@@ -208,7 +208,7 @@ class GameStartDialog(arcade.View):
             self.manager.clear()
             self.setup_ui()
 
-    # Difficulty selection removed - always uses easy difficulty
+    # Выбор сложности удален - всегда используется легкая сложность
 
     def on_start_click(self, event):
         self.start_game = True
@@ -237,7 +237,7 @@ class GameStartDialog(arcade.View):
             left, right, bottom, top, (0, 0, 0, 200))
         self.manager.draw()
 
-        # Difficulty selection animation removed
+        # Анимация выбора сложности удалена
 
         if self.start_button and self.start_fx > 0 and hasattr(self.start_button, "rect"):
             alpha = int(max(0, min(255, 255 * (self.start_fx / 0.2))))
@@ -264,7 +264,7 @@ class GameStartDialog(arcade.View):
             if self.transition_alpha >= 255 and self.window:
                 from windows.loading_view import LoadingView
                 from project import ProjectSettings
-                # Always use easy difficulty
+                # Всегда использовать легкую сложность
                 loading_view = LoadingView(
                     difficulty=ProjectSettings.Game.DIFFICULTY_EASY,
                     load_save=self.load_save

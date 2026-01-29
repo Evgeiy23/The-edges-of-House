@@ -21,7 +21,7 @@ class GameWindowInventory:
         sp.center_x = px
         sp.center_y = py
         
-        # Physics properties
+        # Физические свойства
         sp.change_x = velocity[0]
         sp.change_y = velocity[1]
         
@@ -36,7 +36,7 @@ class GameWindowInventory:
         if not self.player:
             return
 
-        # Reset to base stats
+        # Сброс к базовым характеристикам
         self.player.move_speed = self.player.base_move_speed
         self.player.attack_duration = self.player.base_attack_duration
         self.player.health_regen_amount = self.player.base_health_regen_amount
@@ -46,10 +46,10 @@ class GameWindowInventory:
         self.player.bonus_damage_flat = 0
         self.player.dodge_chance = 0.0
         
-        # Accumulators
+        # Накопители бонусов
         move_mult = 1.0
-        atk_speed_mult = 1.0
-        regen_mult = 1.0
+        atk_speed_bonus = 0.0
+        regen_bonus = 0.0
         
         for item in self.inventory:
             iid = item.get("icon_id")
@@ -60,23 +60,23 @@ class GameWindowInventory:
             self.player.bonus_damage_percent += effect.get("dmg_pct", 0)
             self.player.bonus_damage_flat += effect.get("dmg_flat", 0)
             move_mult += effect.get("move_pct", 0)
-            atk_speed_mult += effect.get("atk_speed_pct", 0)
-            regen_mult += effect.get("regen_pct", 0)
+            atk_speed_bonus += effect.get("atk_speed_pct", 0)
+            regen_bonus += effect.get("regen_pct", 0)
             self.player.dodge_chance += effect.get("dodge", 0)
             
             if effect.get("special") == "double_strike":
                 self.player.has_double_strike = True
 
-        # Finalize
+        # Финализация
         self.player.move_speed *= max(0.1, move_mult)
-        # Attack speed increases means duration decreases.
-        self.player.attack_duration = self.player.base_attack_duration / max(0.1, 1.0 + atk_speed_mult)
+        # Увеличение скорости атаки означает уменьшение длительности.
+        self.player.attack_duration = self.player.base_attack_duration / max(0.1, 1.0 + atk_speed_bonus)
         
-        self.player.health_regen_amount = int(self.player.base_health_regen_amount * max(1.0, 1.0 + regen_mult))
+        self.player.health_regen_amount = int(self.player.base_health_regen_amount * max(1.0, 1.0 + regen_bonus))
 
     def get_item_description(self, icon_id):
         """Возвращает описание предмета"""
-        # Check if it has an effect description first
+        # Сначала проверяем, есть ли описание эффекта
         if icon_id in ITEM_EFFECTS and "desc" in ITEM_EFFECTS[icon_id]:
             return ITEM_EFFECTS[icon_id]["desc"]
         return f"Предмет #{icon_id}"

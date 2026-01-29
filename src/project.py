@@ -47,7 +47,7 @@ class ProjectSettings:
                                "165", "144", "120", "60", "vsync"]
         DEFAULT_FRAME_LIMIT = "240"
         MAP_SCALE = 1
-        VOICE_ENABLED = True  # Default voice setting
+        VOICE_ENABLED = True  # Настройка голоса по умолчанию
 
         DIFFICULTY_EASY = "easy"
         DIFFICULTY_MEDIUM = "medium"
