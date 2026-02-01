@@ -2,9 +2,10 @@ import arcade
 import arcade.gui
 
 class GameOverView(arcade.View):
-    def __init__(self, game_view):
+    def __init__(self, game_view, stats=None):
         super().__init__()
         self.game_view = game_view
+        self.stats = stats or {}
         
         # Создание макета
         self.ui_manager = arcade.gui.UIManager()
@@ -20,6 +21,26 @@ class GameOverView(arcade.View):
             align="center"
         )
         
+        self.v_box = arcade.gui.UIBoxLayout(space_between=20)
+        self.v_box.add(self.text_area)
+
+        # Статистика
+        if self.stats:
+            stats_box = arcade.gui.UIBoxLayout(vertical=True, space_between=10)
+            if "chests" in self.stats:
+                stats_box.add(arcade.gui.UILabel(
+                    text=f"Сундуков открыто: {self.stats['chests']}",
+                    font_size=16,
+                    text_color=arcade.color.WHITE
+                ))
+            if "cheats" in self.stats:
+                stats_box.add(arcade.gui.UILabel(
+                    text=f"Использовано читов: {self.stats['cheats']}",
+                    font_size=16,
+                    text_color=arcade.color.WHITE
+                ))
+            self.v_box.add(stats_box)
+        
         # Кнопка перезапуска
         restart_button = arcade.gui.UIFlatButton(text="Заново", width=200)
         
@@ -30,18 +51,13 @@ class GameOverView(arcade.View):
         restart_button.on_click = self.on_restart
         exit_button.on_click = self.on_exit
 
-        # Виджет якоря
-        self.v_box = arcade.gui.UIBoxLayout(space_between=20)
-        self.v_box.add(self.text_area)
         self.v_box.add(restart_button)
         self.v_box.add(exit_button)
 
-        self.ui_manager.add(
-            arcade.gui.UIAnchorWidget(
-                anchor_x="center_x",
-                anchor_y="center_y",
-                child=self.v_box)
-        )
+        # Layout
+        self.ui_anchor = arcade.gui.UIAnchorLayout()
+        self.ui_anchor.add(child=self.v_box, anchor_x="center_x", anchor_y="center_y")
+        self.ui_manager.add(self.ui_anchor)
 
     def on_restart(self, event):
         # Сброс игры
@@ -57,3 +73,6 @@ class GameOverView(arcade.View):
         # Отрисовка игрового вида на фоне (затемненного) если возможно, или просто черный
         if self.game_view:
              self.game_view.on_draw()
+        
+        # Отрисовка интерфейса
+        self.ui_manager.draw()

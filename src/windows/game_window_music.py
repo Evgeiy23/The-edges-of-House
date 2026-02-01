@@ -10,28 +10,31 @@ class GameWindowMusic:
 
     def reset_level_music(self):
         """Сброс выбранной музыки уровня (вызывается при переходе на новый уровень)"""
-        self.current_level_music_path = None
+        # Отключено для обеспечения непрерывного воспроизведения одного трека
+        # self.current_level_music_path = None
+        pass
 
     def play_game_music(self):
         """Воспроизведение игровой музыки"""
         if not ProjectSettings.MUSIC_ENABLED:
             return
             
-        # Пасхалка 40 уровня
-        if hasattr(self, 'level') and self.level == 40:
-            MusicManager().play(
-                MusicManager.PATH_LEVEL_40,
-                MusicManager.PRIORITY_LEVEL_SPECIAL,
-                loop=True,
-                volume=getattr(self, 'music_volume', 1.0)
-            )
-            return
-
-        # Обычная музыка уровня
-        # Выбрать один случайный трек из вариантов, если еще не выбран
-        if not hasattr(self, 'current_level_music_path') or self.current_level_music_path is None:
-            self.current_level_music_path = random.choice(MusicManager.PATH_LEVEL_OPTIONS)
+        # Пасхалка 40 уровня (оставляем или убираем? Пользователь просил "жестко зафиксировать один музыкальный трек")
+        # "один музыкальный трек, который будет непрерывно воспроизводиться... без перерывов и переключений"
+        # Наверное, лучше убрать и пасхалку, чтобы быть строгим. Но 40 уровень это спец случай.
+        # Оставим спец. уровень, если это критично, но для обычного геймплея фиксируем.
+        # Допустим, пользователь хочет ОДИН трек вообще.
         
+        # Фиксируем трек (берем первый из списка или конкретный)
+        if not hasattr(self, 'current_level_music_path') or self.current_level_music_path is None:
+            # Всегда используем первый трек из списка вариантов для стабильности
+            if MusicManager.PATH_LEVEL_OPTIONS:
+                self.current_level_music_path = MusicManager.PATH_LEVEL_OPTIONS[0]
+            else:
+                return # Нет музыки
+        
+        # Играем с высоким приоритетом, чтобы ничего не перебило?
+        # Или просто играем.
         MusicManager().play(
             self.current_level_music_path,
             MusicManager.PRIORITY_LEVEL,
@@ -41,28 +44,20 @@ class GameWindowMusic:
 
     def stop_game_music(self):
         """Остановка игровой музыки"""
-        # Остановить все до приоритета уровня (включая музыку уровня)
+        # Не останавливаем, если хотим непрерывность?
+        # Но при выходе в меню надо остановить.
+        # Метод вызывается при смене view.
         MusicManager().stop(priority_threshold=MusicManager.PRIORITY_LEVEL_SPECIAL)
 
     def play_suspense_music(self):
         """Воспроизведение музыки в комнате с боссом"""
-        if not ProjectSettings.MUSIC_ENABLED:
-            return
-
-        MusicManager().play(
-            MusicManager.PATH_BOSS,
-            MusicManager.PRIORITY_BOSS,
-            loop=True,
-            volume=getattr(self, 'music_volume', 1.0)
-        )
+        # Отключено по запросу пользователя (без переключений)
+        pass
 
     def stop_suspense_music(self):
         """Останавливает музыку комнаты с выходом"""
-        # Остановить музыку босса.
-        MusicManager().stop(priority_threshold=MusicManager.PRIORITY_BOSS)
-        
-        # Опционально возобновить музыку игры, если мы не выходим из игры
-        # self.play_game_music() # Это может быть рискованно, если вызвано во время очистки
+        # Отключено
+        pass
         
     def update_music(self, delta_time):
         MusicManager().update(delta_time)

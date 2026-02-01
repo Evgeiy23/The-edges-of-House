@@ -1,9 +1,13 @@
-import arcade
 import os
+import argparse
+from dotenv import load_dotenv
+
+load_dotenv()
+
+import arcade
 import json
 import pyglet
 import warnings
-import argparse
 # Подавить все предупреждения, включая PerformanceWarning от Arcade
 warnings.filterwarnings("ignore")
 from windows.start_window import StartWindow
@@ -60,10 +64,12 @@ def main():
     parser = argparse.ArgumentParser(description="The Edges of House Game")
     parser.add_argument("--wc", "--with-cheats", action="store_true", help="Enable cheats")
     parser.add_argument("--wom", "--without-music", action="store_true", help="Disable music")
+    parser.add_argument("--debug", action="store_true", help="Enable debug mode (show outlines)")
     args = parser.parse_args()
 
     ProjectSettings.CHEATS_ENABLED = args.wc
     ProjectSettings.MUSIC_ENABLED = not args.wom
+    ProjectSettings.DEBUG_MODE = args.debug
 
     if ProjectSettings.CHEATS_ENABLED:
         ProjectSettings.VERSION += ".1-cheats"

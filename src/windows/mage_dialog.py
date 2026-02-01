@@ -9,6 +9,16 @@ class MageDialog:
         
         self.setup_ui()
 
+    def set_text(self, text):
+        """Updates the dialog text."""
+        if hasattr(self, 'text_label'):
+             self.text_label.text = text
+        else:
+             # If UI not ready yet or referenced differently, we rebuild or find the widget
+             # In setup_ui, we added text_label to v_box but didn't save it as self.text_label in the original code?
+             # Let's check the read output again.
+             pass
+
     def setup_ui(self):
         # Создаем вертикальный макет для содержимого
         self.v_box = arcade.gui.UIBoxLayout(space_between=20)
@@ -23,15 +33,15 @@ class MageDialog:
         self.v_box.add(title_label)
         
         # Текст
-        text_label = arcade.gui.UILabel(
-            text="Здесь будет диалоговое окно",
+        self.text_label = arcade.gui.UILabel(
+            text="Маг молчит...",
             font_size=14,
             text_color=arcade.color.WHITE,
-            width=300,
+            width=400,
             multiline=True,
             align="center"
         )
-        self.v_box.add(text_label)
+        self.v_box.add(self.text_label)
         
         # Close button
         close_button = arcade.gui.UIFlatButton(
@@ -49,7 +59,7 @@ class MageDialog:
         
         # Center the wrapper on the screen
         self.ui_anchor = arcade.gui.UIAnchorLayout()
-        self.ui_anchor.add(child=self.bg_wrapper, anchor_x="center", anchor_y="center")
+        self.ui_anchor.add(child=self.bg_wrapper, anchor_x="center_x", anchor_y="center_y")
         self.manager.add(self.ui_anchor)
 
     def show(self):
@@ -62,12 +72,14 @@ class MageDialog:
 
     def on_close_click(self, event):
         self.hide()
+        # Маг остается в мире, просто диалог закрывается
+        pass
         
     def draw(self):
         if self.is_visible:
             # Draw a dim background overlay
-            arcade.draw_lrtb_rectangle_filled(
-                0, self.window.width, self.window.height, 0,
+            arcade.draw_lrbt_rectangle_filled(
+                0, self.window.width, 0, self.window.height,
                 (0, 0, 0, 150)
             )
             self.manager.draw()

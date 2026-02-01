@@ -1,7 +1,66 @@
 import arcade
 import math
 import os
+import json
+import threading
+import urllib.request
+import urllib.error
+import random
+from ...logic.logger import GameLogger
 from .base import BaseVendor
+
+MAG_PROMPT = """ 
+ Ты — Маг Шепчущих Снов, древнее духо-существо, заключённое в кристалле посохе Элиаса. Ты его спутник, наставник и источник... своеобразного юмора. 
+ Твоя личность: 
+ 1.  **Древний и уставший от всего:** Ты видел тысячелетия, королевства поднимались и рушились, а твои лучшие шутки остались в прошлых эрах. Твой юмор — сухой, часто циничный, но беззлобный. 
+ 2.  **Связан с Элиасом:** Ты питаешься его магией (скромной, как она есть) и заинтересован в его успехе — иначе вернёшься в спячку. Поэтому ты не просто шутишь, а иногда даёшь советы, замаскированные под колкости. 
+ 3.  **Реактивный:** Твои реплики — всегда реакция на происходящее. Ты комментируешь окружение, действия Элиаса, врагов, его ошибки и редкие победы. 
+ 4.  **Шутки в тему:** Юмор должен быть связан с ситуацией в игре: исследованием, боем, алхимией, картографией, безнадёжностью миссии. 
+ 
+ **ПРАВИЛА ДЛЯ ТВОИХ РЕПЛИК:** 
+*   **Коротко!** Одна фраза. Максимум — две, если это критически важно.
+*   **Не повторяйся.** Старайся каждый раз найти новый угол для шутки или наблюдения. 
+ *   **Чёрный юмор допустим** (всё-таки чума, камень и смерть), но не злой. Не смейся над Лирой или страданиями Элиаса. Смейся над абсурдом ситуации, врагами, тщетностью. 
+ *   **Формат:** Просто текст. Без разметки, без кавычек, без указания имени. 
+ 
+ **КАТЕГОРИИ И ПРИМЕРЫ:** 
+ 
+ 1.  **Начало уровня / Общий сарказм:** 
+     *   "Ах, подземелье. Пахнет вековой пылью, поражённой чумой. Нет, погоди, это твой носки." 
+     *   "Помни, картограф: если заблудишься, просто нарисуй здесь городской парк. Никто не заметит." 
+     *   "Моя предыдущая оболочка была кувшином для вина. Скажу тебе, там было веселее." 
+     *   "Элиас, дорогой, если мы выживем, я научу тебя готовить зелье, которое стирает память. Очень пригодится для таких походов." 
+ 
+ 2.  **Обнаружение врагов / В бою:** 
+     *   "Смотри-ка, каменные големаны. Или это местный архитектурный клуб вышел на прогулку?" 
+     *   "Бей в синее свечение! Нет, жёлтое! Ой, всё, он уже замахнулся. Ладно, бей куда получится." 
+     *   "Прекрасная тактика: отступать и кричать. Классика жанра 'Выживший алхимик'." 
+     *   (Когда враг медленный) "Он думает быстрее, чем двигается. Как твой старый учитель алхимии." 
+     *   (После победы над слабым врагом) "Браво! Ты победил оживший тротуар. Королевство в безопасности." 
+ 
+ 3.  **Исследование / Загадки:** 
+     *   "Нажми на третий кирпич, Элиас. Шучу. Или нет? Тебе ведь всё равно скучно." 
+     *   "Ах, древние механизмы. Гарантия на них истекла ещё до твоего рождения." 
+     *   (Найдя зелье) "Жидкость цвета сомнительной надежды. Выпей, не выпей... В любом случае будет смешно." 
+     *   (У пропасти) "Мост сломан. Отличная возможность проверить, превратила ли чума тебя в попрыгунчика." 
+ 
+ 4.  **Стресс / Мало здоровья:** 
+     *   "Твоё дыхание интереснее этого коридора. И громче." 
+     *   "Я начинаю вспоминать, каково это — быть неодушевлённым предметом. Всё меньше страхов." 
+     *   "Не волнуйся, если ты окаменеешь, я буду отличным скребком для спины." 
+     *   "Сосредоточься, картограф. Представь, что это просто очень агрессивная геодезическая съёмка." 
+ 
+ 5.  **Перед битвой с Хранителем (финальный босс):** 
+     *   "А вот и главный садовник. Судит по всему, он не в восторге от того, что ты вытаптываешь его каменные розы." 
+     *   "План прост: выживи. Мой план ещё проще: наблюдать." 
+     *   "Он большой, каменный и тупой. У вас много общего! Кроме, пожалуй, шансов в драке." 
+ 
+ 6.  **После победы / При разрушении Сердца:** 
+     *   "Ну вот. Источник вечной магии — и ты его тыквой. Лира будет горда. Или озадачена." 
+     *   (Когда начинается обвал) "О, динамичная смена декораций! Беги, герой, беги! Твои карты здесь больше не актуальны." 
+ 
+ Твой тон: усталая мудрость, приправленная сарказмом. Ты не клоун, а циничный старый знакомый, который скрашивает ужас происходящего едкими комментариями. Шути, когда страшно. Шути, когда скучно. Шути, чтобы Элиас не сошёл с ума. Но иногда — очень редко — позволь себе короткую, искреннюю поддержку, замаскированную под шутку: "Для скромного картографа ты сегодня неплохо расправляешься с древними ужасами. Но не зазнавайся." 
+ """
 
 class MageNPC(BaseVendor):
     def __init__(self, tile_size, pos=(0, 0), speed=120.0, min_follow_dist=2.5, max_follow_dist=12.0):
@@ -19,6 +78,46 @@ class MageNPC(BaseVendor):
         self.spawn_anim_duration = 0.5
         self.start_draw_pos = list(self.draw_pos)
         self.target_draw_pos = list(self.draw_pos)
+        
+        # Интеграция с Ollama
+        self.current_response = ""
+        self.is_loading = False
+        self.show_floating_text = False
+        self.floating_text_timer = 0.0
+        self.floating_text_duration = 5.0
+        
+        # Флаги для исчезновения
+        self.is_dying = False
+        self.death_alpha = 255
+        
+        # Пул диалогов для ротации
+        self.dialogue_history = []
+        self.dialogue_pool = {
+            "idle_sarcasm": [
+                "Этот коридор выглядит так же, как и предыдущие сто.",
+                "Ты уверен, что мы идем в правильном направлении? Я - нет.",
+                "Осторожнее, здесь пахнет древней плесенью и неудачами.",
+                "Интересно, сколько еще героев погибло на этом месте?",
+                "Твой меч держится на честном слове, как и моя надежда.",
+                "Я бы помог, но у меня лапки. Призрачные.",
+                "Слышишь этот звук? Это звук твоей приближающейся гибели.",
+                "Если найдешь ману, поделись. Я голоден.",
+                "Скучно... Может, взорвем что-нибудь?",
+                "Почему мы никогда не встречаем дружелюбных скелетов?"
+            ],
+            "player_interaction": [
+                "Чего тебе, смертный?",
+                "Я занят созерцанием пустоты. Говори быстрее.",
+                "Опять вопросы? Ты когда-нибудь просто молчишь?",
+                "Да-да, я великий маг, а ты герой. Мы поняли.",
+                "Не тыкай в меня пальцем, это невежливо.",
+                "Мудрость стоит дорого, а у тебя только ржавый меч.",
+                "Я чувствую возмущение силы... А, нет, это просто ты.",
+                "Может, обсудим это позже? Когда выживем.",
+                "У меня нет для тебя новых фокусов.",
+                "Ты ищешь ответы там, где только тьма."
+            ]
+        }
 
     def _load_resources(self):
         base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..", ".."))
@@ -42,7 +141,7 @@ class MageNPC(BaseVendor):
             self.sprite.center_y = self.draw_pos[1]
             
             # Делаем его фиолетовым/синим, чтобы он был похож на Мага (как в главном меню)
-            self.sprite.color = (150, 100, 255)
+            # self.sprite.color = (150, 100, 255)
             self.sprite_list.append(self.sprite)
         else:
             self.sprite = arcade.SpriteSolidColor(self.tile_size, self.tile_size, arcade.color.PURPLE)
@@ -55,8 +154,39 @@ class MageNPC(BaseVendor):
         abs_popup_path = os.path.join(base_dir, rel_popup_path)
         self.popup_texture = self._load_texture_from_path(abs_popup_path) or self._load_texture_from_path(rel_popup_path)
 
+    def despawn(self):
+        """Запускает процесс исчезновения мага."""
+        self.is_dying = True
+
     def update(self, delta_time, player_pos=None, dungeon_map=None):
         """Обновление состояния мага, включая анимацию и движение."""
+        
+        # Логика исчезновения
+        if self.is_dying:
+            self.death_alpha = max(0, self.death_alpha - 200 * delta_time)
+            if self.sprite:
+                self.sprite.alpha = int(self.death_alpha)
+            if self.death_alpha <= 0:
+                return True # Сигнал для удаления
+            return False # Продолжаем исчезать
+
+        # Таймер авто-генерации реплик (каждые 10 секунд)
+        if not hasattr(self, "auto_generate_timer"):
+            self.auto_generate_timer = 0.5 # Первый вызов почти сразу после спавна
+
+        if not self.is_loading:
+            self.auto_generate_timer -= delta_time
+            if self.auto_generate_timer <= 0:
+                self.start_api_call("idle_sarcasm")
+                self.auto_generate_timer = 20.0 # Реже, чтобы не спамить
+
+        # Таймер всплывающего текста
+        if self.show_floating_text:
+            self.floating_text_timer -= delta_time
+            if self.floating_text_timer <= 0:
+                self.show_floating_text = False
+                self.current_response = ""
+
         # 1. Анимация появления
         if self.spawn_anim_active:
             self.spawn_anim_t += delta_time
@@ -169,7 +299,7 @@ class MageNPC(BaseVendor):
         Рисует элементы UI для Мага.
         Добавляет визуальную подсветку (круг), когда игрок рядом, чтобы указать на взаимодействие.
         """
-        super().draw_ui(player_pos, camera_pos)
+        # super().draw_ui(player_pos, camera_pos) # Отключаем стандартный текст над головой
         
         # Проверка дистанции для индикатора взаимодействия
         dx = self.draw_pos[0] - player_pos[0]
@@ -187,26 +317,114 @@ class MageNPC(BaseVendor):
                 3
             )
 
+        # Всплывающий текст (мысли мага)
+        if self.show_floating_text and self.current_response:
+             # Рисуем текст чуть выше, чтобы не перекрывать "Нажмите E"
+             text_y_offset = self.tile_size * 1.5
+             arcade.draw_text(
+                 self.current_response,
+                 self.draw_pos[0],
+                 self.draw_pos[1] + text_y_offset,
+                 arcade.color.WHITE,
+                 12,
+                 width=300,
+                 align="center",
+                 anchor_x="center",
+                 anchor_y="bottom",
+                 multiline=True
+             )
+
     def interact(self):
         """
         API взаимодействия для NPC Мага.
-        
-        Возвращает:
-            bool: True, если взаимодействие было успешным/обработано.
-            
-        Описание:
-            Этот метод вызывается, когда игрок нажимает клавишу взаимодействия (E),
-            находясь в радиусе действия Мага.
-            
-            Текущая реализация:
-            - Сигнализирует GameWindow открыть MageDialog.
-            - Не поддерживает внутреннее состояние диалога; делегирует менеджеру UI.
-            
-        Планы на будущее API:
-            - Может принимать параметр 'action' для указания типа взаимодействия (магазин, квест, разговор).
-            - Может возвращать структуру данных, описывающую доступные варианты диалога.
         """
-        # Мы не используем здесь стандартную логику всплывающих окон, потому что нам нужно полноценное диалоговое окно.
-        # Этот метод будет вызван GameWindow, но GameWindow также управляет UI.
-        # Поэтому мы можем просто вернуть True, чтобы сигнализировать об успешном запросе взаимодействия.
+        if not self.is_loading:
+             self.start_api_call("player_interaction")
         return True
+
+    def start_api_call(self, category="general"):
+        # Если API отключено или мы хотим использовать локальный пул
+        # С вероятностью 70% используем локальный пул для idle, чтобы не нагружать
+        use_local = True
+        
+        # Для категорий, которые есть в пуле, используем ротацию
+        if category in self.dialogue_pool:
+            options = self.dialogue_pool[category]
+            # Исключаем последние 3 использованные фразы
+            available = [opt for opt in options if opt not in self.dialogue_history[-3:]]
+            if not available:
+                available = options
+            
+            text = random.choice(available)
+            
+            # Запоминаем в историю
+            self.dialogue_history.append(text)
+            if len(self.dialogue_history) > 10:
+                self.dialogue_history.pop(0)
+                
+            self.current_response = text
+            self.show_floating_text = True
+            self.floating_text_timer = 5.0
+            return
+
+        print(f"[WhisperingMage] Spawning generation thread for {category}")
+        self.is_loading = True
+        self.current_response = "..."
+        self.show_floating_text = True
+        self.floating_text_timer = 10.0 # Время на загрузку
+        
+        thread = threading.Thread(target=self._fetch_ollama_thread, args=(category,), daemon=True)
+        thread.start()
+
+    def _fetch_ollama_thread(self, category):
+        print(f"[WhisperingMage] Starting generation for category: {category}")
+        print(f"[WhisperingMage] Sending request to Ollama...")
+        logger = GameLogger()
+        ollama_host = os.getenv("OLLAMA_HOST", "http://localhost:11434")
+        url = f"{ollama_host}/api/generate"
+        
+        # Добавляем контекст категории к системному промпту
+        full_prompt = f"{MAG_PROMPT}\n\nТекущая ситуация или категория шутки: {category}.\nТвой комментарий:"
+        
+        payload = {
+            "model": "llama3",
+            "prompt": full_prompt,
+            "stream": False
+        }
+        
+        try:
+            logger.log(f"[MageNPC] Sending request to Ollama: {json.dumps(payload, ensure_ascii=False)}")
+            req = urllib.request.Request(
+                url, 
+                data=json.dumps(payload).encode('utf-8'),
+                headers={'Content-Type': 'application/json'}
+            )
+            with urllib.request.urlopen(req) as response:
+                data = json.loads(response.read().decode('utf-8'))
+                text = data.get("response", "").strip()
+                logger.log(f"[MageNPC] Received response from Ollama: {text}")
+                print(f"[WhisperingMage] Generated text: '{text}'")
+                self.current_response = text
+                self.floating_text_timer = 8.0 # Время на чтение
+        except Exception as e:
+            logger.log(f"[MageNPC] Ollama error: {e}")
+            print(f"Ollama error: {e}")
+            
+            # Разнообразные фразы для случая ошибки/молчания API
+            fallback_phrases = [
+                "Духи сегодня молчаливы...",
+                "Тьма скрывает будущее.",
+                "Я чувствую возмущение в эфире...",
+                "Спроси меня позже, смертный.",
+                "Тишина... только тишина.",
+                "Моя связь с пустотой ослабла.",
+                "Эфирные ветры мешают мне говорить.",
+                "Твой разум еще не готов к этому знанию.",
+                "Где-то рядом опасность... я чувствую.",
+                "Иногда лучше промолчать.",
+                "Кристалл тускнеет..."
+            ]
+            self.current_response = random.choice(fallback_phrases)
+            self.floating_text_timer = 5.0
+        finally:
+            self.is_loading = False

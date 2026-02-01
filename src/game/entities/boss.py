@@ -406,7 +406,10 @@ class Boss:
                     
                     # Reset color if not attacking
                     if self.sprite.color == (255, 100, 100):
+                         # Сохраняем текущую альфу при сбросе цвета
+                         current_alpha = self.sprite.alpha
                          self.sprite.color = (255, 255, 255)
+                         self.sprite.alpha = current_alpha
 
             # Update grid pos
             self.pos[0] = int(self.draw_pos[0] / self.tile_size)

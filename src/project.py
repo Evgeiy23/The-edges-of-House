@@ -10,6 +10,7 @@ class ProjectSettings:
     
     CHEATS_ENABLED = False
     MUSIC_ENABLED = True
+    DEBUG_MODE = False
 
     class StartWindow:
         BACKGROUND_IMAGE = "resources/background.jpg"

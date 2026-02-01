@@ -9,9 +9,18 @@ from game.items.effects import ITEM_EFFECTS
 class GameWindowInventory:
     """Класс-миксин для методов управления инвентарем"""
     
-    def spawn_dropped_item(self, icon_id, px, py, ignore_player_duration=0.0, velocity=(0, 0)):
+    def spawn_dropped_item(self, icon_id, px, py, ignore_player_duration=0.0, velocity=(0, 0), custom_texture_path=None):
         """Создает предмет на земле"""
-        tex = self.item_textures.get(icon_id)
+        tex = None
+        if custom_texture_path:
+            try:
+                tex = arcade.load_texture(custom_texture_path)
+            except Exception as e:
+                print(f"Error loading custom texture {custom_texture_path}: {e}")
+        
+        if not tex:
+            tex = self.item_textures.get(icon_id)
+            
         if not tex:
             return
         sp = arcade.Sprite()

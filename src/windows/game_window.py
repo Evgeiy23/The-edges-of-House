@@ -23,6 +23,9 @@ from game.entities.ghost import Ghost
 from game.logic.ghost_manager import GhostManager
 from windows.mage_dialog import MageDialog
 from windows.game_over_view import GameOverView
+from windows.end_game_view import EndGameView
+
+from windows.end_game_view import EndGameView
 from game.map.dungeon_map import DungeonMap
 from game.items.effects import ITEM_EFFECTS
 from game.items.explosives import Bomb, Dynamite, Explosion, ExplosionParticle
@@ -107,6 +110,9 @@ class GameWindow(arcade.View, GameWindowRendering, GameWindowInventory,
         self.frame_limit = ProjectSettings.Game.DEFAULT_FRAME_LIMIT
         self.spawn_corner = spawn_corner
         self.map_payload = map_payload
+        
+        self.current_fps = 0
+
         self.map_name = map_name
         self.minimap_player_draw_pos = None
         self.boss_room_ids = set()
@@ -224,6 +230,19 @@ class GameWindow(arcade.View, GameWindowRendering, GameWindowInventory,
         self.game_over = False
         self.death_sequence_timer = 0.0
 
+        # Statistics
+        self.chest_open_count = 0
+        self.cheat_activation_count = 0
+
+        # End Game Sequence
+        self.end_game_active = False
+        self.end_game_phase = 0 # 0: None, 1: Video, 2: End Screen
+        self.end_video_player = None
+        self.end_video_texture = None
+        self.end_video_path = os.path.join("resources", "videos", "theend.mp4")
+        self.end_music_player = None
+        self.end_stats_visible = False # Toggle for stats on end screen
+
     def load_settings(self):
         config_file = get_config_path()
         if os.path.exists(config_file):
@@ -305,6 +324,7 @@ class GameWindow(arcade.View, GameWindowRendering, GameWindowInventory,
             'duration': 2.0,  # Длительность эффекта в секундах
             'particles': []
         }
+        return # Отключено: убрать все партиклы
         
         # Звуковой эффект
         try:
@@ -812,11 +832,15 @@ class GameWindow(arcade.View, GameWindowRendering, GameWindowInventory,
         if not self.dungeon_map:
             return
         
-        self.mages = []
+        # Если маги уже есть (например, загружены), не трогаем их
+        if self.mages:
+            return
         
         # Проверка, был ли маг уже создан в этой сессии
         if self.mage_spawned:
             return
+
+        self.mages = []
 
         # Найти случайную позицию в коридоре
         if not self.dungeon_map.corridor_tiles:
@@ -910,8 +934,8 @@ class GameWindow(arcade.View, GameWindowRendering, GameWindowInventory,
         logger = GameLogger()
         logger.log(f"Player spawned at: {spawn_pos}")
             
-        self.place_sage_in_corridor()
-        self.place_merchant()
+        # self.place_sage_in_corridor()
+        # self.place_merchant()
         self.place_mages()
         self.place_ghosts()
 
@@ -1292,6 +1316,261 @@ class GameWindow(arcade.View, GameWindowRendering, GameWindowInventory,
         self.view_radius = 5
         self.use_fov = True
 
+    def _check_line_of_sight(self, target_grid_pos):
+        """Проверяет прямую видимость от игрока до цели (raycasting)."""
+        if not self.player or not self.dungeon_map:
+            return False
+            
+        player_grid = self.player.get_grid_position()
+        
+        # Если в одной клетке - видим
+        if player_grid == target_grid_pos:
+            return True
+            
+        return self.dungeon_map.has_line_of_sight(player_grid, target_grid_pos)
+
+    def _update_fading(self, delta_time):
+        """Обновляет прозрачность объектов для плавного появления/исчезновения в темноте"""
+        transition_speed = 5.0 # Скорость затухания
+        
+        # 1. Боссы
+        for boss in self.bosses:
+            if not boss: continue
+            
+            # Проверка целевой видимости
+            is_visible = False
+            bx, by = int(boss.pos[0]), int(boss.pos[1])
+            if self.visibility_grid and 0 <= by < len(self.visibility_grid) and 0 <= bx < len(self.visibility_grid[0]):
+                is_visible = self.visibility_grid[by][bx]
+            elif (bx, by) in self.visible_tiles:
+                is_visible = True
+            
+            # Дополнительная проверка raycasting
+            if is_visible:
+                 is_visible = self._check_line_of_sight((bx, by))
+            
+            # Целевая альфа
+            target_alpha = 255 if is_visible else 0
+            
+            # Обновляем спрайт
+            if hasattr(boss, "sprite"):
+                current_alpha = boss.sprite.alpha
+                if current_alpha < target_alpha:
+                    current_alpha = min(target_alpha, current_alpha + transition_speed * delta_time * 255)
+                elif current_alpha > target_alpha:
+                    current_alpha = max(target_alpha, current_alpha - transition_speed * delta_time * 255)
+                boss.sprite.alpha = int(current_alpha)
+                # Обновляем логический флаг видимости
+                boss.visible = (current_alpha > 0)
+
+        # 2. Маги
+        if getattr(self, "mages", None):
+            for mage in self.mages:
+                if getattr(mage, "spawn_anim_active", False):
+                    continue # Маг сам управляет своей прозрачностью при спавне
+                
+                is_visible = False
+                mx, my = int(mage.pos[0]), int(mage.pos[1])
+                if self.visibility_grid and 0 <= my < len(self.visibility_grid) and 0 <= mx < len(self.visibility_grid[0]):
+                    is_visible = self.visibility_grid[my][mx]
+                elif (mx, my) in self.visible_tiles:
+                    is_visible = True
+                
+                # Дополнительная проверка raycasting
+                if is_visible:
+                     is_visible = self._check_line_of_sight((mx, my))
+                
+                target_alpha = 255 if is_visible else 0
+                
+                if hasattr(mage, "sprite") and mage.sprite:
+                    current_alpha = mage.sprite.alpha
+                    if current_alpha < target_alpha:
+                        current_alpha = min(target_alpha, current_alpha + transition_speed * delta_time * 255)
+                    elif current_alpha > target_alpha:
+                        current_alpha = max(target_alpha, current_alpha - transition_speed * delta_time * 255)
+                    mage.sprite.alpha = int(current_alpha)
+
+        # 3. Выпавшие предметы
+        if self.dropped_item_sprites:
+            for item in self.dropped_item_sprites:
+                gx = int(item.center_x / self.tile_size)
+                gy = int(item.center_y / self.tile_size)
+                
+                is_visible = False
+                if self.visibility_grid and 0 <= gy < len(self.visibility_grid) and 0 <= gx < len(self.visibility_grid[0]):
+                     is_visible = self.visibility_grid[gy][gx]
+                elif (gx, gy) in self.visible_tiles:
+                     is_visible = True
+                
+                # Raycasting для предметов
+                if is_visible:
+                    is_visible = self._check_line_of_sight((gx, gy))
+                
+                target_alpha = 255 if is_visible else 0
+                
+                current_alpha = item.alpha
+                if current_alpha < target_alpha:
+                    current_alpha = min(target_alpha, current_alpha + transition_speed * delta_time * 255)
+                elif current_alpha > target_alpha:
+                    current_alpha = max(target_alpha, current_alpha - transition_speed * delta_time * 255)
+                item.alpha = int(current_alpha)
+
+        # 4. Эмбиент (Призраки и т.д.)
+        if self.ambient_sprites:
+             for sprite in self.ambient_sprites:
+                gx = int(sprite.center_x / self.tile_size)
+                gy = int(sprite.center_y / self.tile_size)
+                
+                is_visible = (gx, gy) in self.visible_tiles
+                
+                # Raycasting для эмбиента
+                if is_visible:
+                    is_visible = self._check_line_of_sight((gx, gy))
+
+                target_alpha = 255 if is_visible else 0
+                current_alpha = sprite.alpha
+                if current_alpha < target_alpha:
+                    current_alpha = min(target_alpha, current_alpha + transition_speed * delta_time * 255)
+                elif current_alpha > target_alpha:
+                    current_alpha = max(target_alpha, current_alpha - transition_speed * delta_time * 255)
+                sprite.alpha = int(current_alpha)
+
+        # 4.1 Призраки (Ghosts)
+        if hasattr(self, "ghosts") and self.ghosts:
+            for ghost in self.ghosts:
+                if not ghost or not hasattr(ghost, "sprite") or not ghost.sprite:
+                    continue
+                
+                # Призраки теперь всегда видимы (по запросу пользователя)
+                # Устанавливаем целевую альфу в 255 без проверок видимости
+                target_alpha = 255
+                
+                current_alpha = ghost.sprite.alpha
+                if current_alpha < target_alpha:
+                    current_alpha = min(target_alpha, current_alpha + transition_speed * delta_time * 255)
+                elif current_alpha > target_alpha:
+                    current_alpha = max(target_alpha, current_alpha - transition_speed * delta_time * 255)
+                
+                ghost.sprite.alpha = int(current_alpha)
+
+        # 4.2 Маги (Mages)
+        if hasattr(self, "mages") and self.mages:
+            for mage in self.mages:
+                if not mage:
+                     continue
+                
+                mx, my = int(mage.pos[0]), int(mage.pos[1])
+                is_visible = False
+                if self.visibility_grid and 0 <= my < len(self.visibility_grid) and 0 <= mx < len(self.visibility_grid[0]):
+                     is_visible = self.visibility_grid[my][mx]
+                elif (mx, my) in self.visible_tiles:
+                     is_visible = True
+                
+                # Raycasting для магов
+                if is_visible:
+                     is_visible = self._check_line_of_sight((mx, my))
+                
+                target_alpha = 255 if is_visible else 0
+                
+                # Маги могут не иметь спрайта напрямую, или иметь сложную структуру
+                # Предполагаем, что у мага есть метод set_alpha или свойство sprite
+                if hasattr(mage, "sprite") and mage.sprite:
+                    current_alpha = mage.sprite.alpha
+                    if current_alpha < target_alpha:
+                        current_alpha = min(target_alpha, current_alpha + transition_speed * delta_time * 255)
+                    elif current_alpha > target_alpha:
+                        current_alpha = max(target_alpha, current_alpha - transition_speed * delta_time * 255)
+                    mage.sprite.alpha = int(current_alpha)
+
+        # 5. Sage (Мудрец)
+        if getattr(self, "sage", None):
+            sage = self.sage
+            sx, sy = int(sage.pos[0]), int(sage.pos[1])
+            is_visible = False
+            if self.visibility_grid and 0 <= sy < len(self.visibility_grid) and 0 <= sx < len(self.visibility_grid[0]):
+                 is_visible = self.visibility_grid[sy][sx]
+            elif (sx, sy) in self.visible_tiles:
+                 is_visible = True
+            
+            # Дополнительная проверка raycasting
+            if is_visible:
+                 is_visible = self._check_line_of_sight((sx, sy))
+            
+            target_alpha = 255 if is_visible else 0
+            if hasattr(sage, "sprite") and sage.sprite:
+                current_alpha = sage.sprite.alpha
+                if current_alpha < target_alpha:
+                    current_alpha = min(target_alpha, current_alpha + transition_speed * delta_time * 255)
+                elif current_alpha > target_alpha:
+                    current_alpha = max(target_alpha, current_alpha - transition_speed * delta_time * 255)
+                sage.sprite.alpha = int(current_alpha)
+
+        # 6. Merchant (Торговец)
+        if getattr(self, "merchant", None):
+            merchant = self.merchant
+            mx, my = int(merchant.pos[0]), int(merchant.pos[1])
+            is_visible = False
+            if self.visibility_grid and 0 <= my < len(self.visibility_grid) and 0 <= mx < len(self.visibility_grid[0]):
+                 is_visible = self.visibility_grid[my][mx]
+            elif (mx, my) in self.visible_tiles:
+                 is_visible = True
+            
+            # Дополнительная проверка raycasting
+            if is_visible:
+                 is_visible = self._check_line_of_sight((mx, my))
+            
+            target_alpha = 255 if is_visible else 0
+            if hasattr(merchant, "sprite") and merchant.sprite:
+                current_alpha = merchant.sprite.alpha
+                if current_alpha < target_alpha:
+                    current_alpha = min(target_alpha, current_alpha + transition_speed * delta_time * 255)
+                elif current_alpha > target_alpha:
+                    current_alpha = max(target_alpha, current_alpha - transition_speed * delta_time * 255)
+                merchant.sprite.alpha = int(current_alpha)
+
+        # 7. Explosives (Взрывчатка)
+        if hasattr(self, 'explosives_list') and self.explosives_list:
+            for explosive in self.explosives_list:
+                gx = int(explosive.center_x / self.tile_size)
+                gy = int(explosive.center_y / self.tile_size)
+                
+                is_visible = False
+                if self.visibility_grid and 0 <= gy < len(self.visibility_grid) and 0 <= gx < len(self.visibility_grid[0]):
+                     is_visible = self.visibility_grid[gy][gx]
+                elif (gx, gy) in self.visible_tiles:
+                     is_visible = True
+                
+                # Raycasting
+                if is_visible:
+                    is_visible = self._check_line_of_sight((gx, gy))
+
+                target_alpha = 255 if is_visible else 0
+                current_alpha = explosive.alpha
+                if current_alpha < target_alpha:
+                    current_alpha = min(target_alpha, current_alpha + transition_speed * delta_time * 255)
+                elif current_alpha > target_alpha:
+                    current_alpha = max(target_alpha, current_alpha - transition_speed * delta_time * 255)
+                explosive.alpha = int(current_alpha)
+
+        # 8. Explosions/Particles (Взрывы и частицы)
+        if hasattr(self, 'explosions_list') and self.explosions_list:
+            for particle in self.explosions_list:
+                gx = int(particle.center_x / self.tile_size)
+                gy = int(particle.center_y / self.tile_size)
+                
+                is_visible = False
+                if self.visibility_grid and 0 <= gy < len(self.visibility_grid) and 0 <= gx < len(self.visibility_grid[0]):
+                     is_visible = self.visibility_grid[gy][gx]
+                elif (gx, gy) in self.visible_tiles:
+                     is_visible = True
+                
+                if is_visible:
+                    is_visible = self._check_line_of_sight((gx, gy))
+
+                # Управление видимостью вместо альфы, чтобы не ломать жизненный цикл частиц
+                particle.visible = is_visible 
+
+
     def update_visibility(self):
         self.visible_tiles.clear()
 
@@ -1328,10 +1607,6 @@ class GameWindow(arcade.View, GameWindowRendering, GameWindowInventory,
             if tile in current_room_tiles:
                 self.visible_tiles.add(tile)
 
-        # Если игрок в комнате босса, расширяем освещение, чтобы видеть всю комнату
-        if in_boss_room:
-            # Добавляем все тайлы из комнаты босса в видимые
-            self.visible_tiles.update(current_room_tiles)
 
         # Проверяем, побежден ли босс, чтобы определить видимость выхода
         boss_defeated = len(
@@ -1370,52 +1645,27 @@ class GameWindow(arcade.View, GameWindowRendering, GameWindowInventory,
             self.visible_chests = arcade.SpriteList()
             self.visible_dropped_items = arcade.SpriteList()
 
-            for boss in self.bosses:
-                if not boss or not boss.is_alive() or not getattr(boss, "visible", True):
-                    continue
-                bx = int(boss.pos[0])
-                by = int(boss.pos[1])
-                visible = False
-                if self.visibility_grid and 0 <= by < height and 0 <= bx < width:
-                    visible = self.visibility_grid[by][bx]
-                elif (bx, by) in self.visible_tiles:
-                    visible = True
-                if visible:
-                    self.visible_boss_ids.add(id(boss))
-
+            # Обновление видимости боссов и предметов теперь происходит в _update_fading для плавности
+            # self.visible_boss_ids и self.visible_dropped_items больше не используются для рендеринга
+            
             if self.chest_sprites:
                 for chest in self.chest_sprites:
                     gx = int(chest.center_x / self.tile_size)
                     gy = int(chest.center_y / self.tile_size)
                     if gx < 0 or gy < 0 or gx >= width or gy >= height:
                         continue
-                    visible = False
-                    if self.visibility_grid:
-                        visible = self.visibility_grid[gy][gx]
-                    elif (gx, gy) in self.visible_tiles:
-                        visible = True
-                    if not visible:
-                        continue
-                    room_id = self.dungeon_map.get_room_id(gx, gy)
-                    if room_id == current_room_id:
+                    
+                    # Strict Visibility Check for Chests
+                    is_visible = (gx, gy) in self.visible_tiles
+                    
+                    # Raycasting check (optional but recommended for consistency)
+                    if is_visible and hasattr(self, '_check_line_of_sight'):
+                        is_visible = self._check_line_of_sight((gx, gy))
+
+                    if is_visible:
                         self.visible_chests.append(chest)
 
-            if self.dropped_item_sprites:
-                for item in self.dropped_item_sprites:
-                    gx = int(item.center_x / self.tile_size)
-                    gy = int(item.center_y / self.tile_size)
-                    if gx < 0 or gy < 0 or gx >= width or gy >= height:
-                        continue
-                    visible = False
-                    if self.visibility_grid:
-                        visible = self.visibility_grid[gy][gx]
-                    elif (gx, gy) in self.visible_tiles:
-                        visible = True
-                    if not visible:
-                        continue
-                    room_id = self.dungeon_map.get_room_id(gx, gy)
-                    if room_id == current_room_id:
-                        self.visible_dropped_items.append(item)
+            # Dropped items visibility is handled in _update_fading
 
     def save_game(self):
         save_file = get_savegame_path()
@@ -1439,6 +1689,10 @@ class GameWindow(arcade.View, GameWindowRendering, GameWindowInventory,
                 "save_point_pos": self.save_point_pos,
                 "save_point_used": self.save_point_used,
                 "mages": [tuple(m.pos) for m in self.mages if m],
+                "mage_data": {
+                    "pos": self.mages[0].pos,
+                    "draw_pos": self.mages[0].draw_pos
+                } if self.mages and self.mages[0] else None,
                 "mage_spawned": self.mage_spawned,
                 "last_seed": getattr(self, "last_seed", "N/A"),
             }
@@ -1816,6 +2070,7 @@ class GameWindow(arcade.View, GameWindowRendering, GameWindowInventory,
         self.pause_manager.add(anchor_layout)
 
     def on_cheat_cycle_shield_cooldown(self, event):
+        self.cheat_activation_count += 1
         values = [5.0, 3.0, 1.0]
         current = self.shield_cooldown
         if current not in values:
@@ -1826,6 +2081,7 @@ class GameWindow(arcade.View, GameWindowRendering, GameWindowInventory,
         self.setup_cheats_menu()
 
     def on_cheat_level_20(self, event):
+        self.cheat_activation_count += 1
         self.level = 20
         self.map_payload = None
         self.show_pause_menu = False
@@ -1834,6 +2090,7 @@ class GameWindow(arcade.View, GameWindowRendering, GameWindowInventory,
         self.setup_game()
 
     def on_cheat_level_40(self, event):
+        self.cheat_activation_count += 1
         self.level = 40
         self.map_payload = None
         self.show_pause_menu = False
@@ -1845,6 +2102,7 @@ class GameWindow(arcade.View, GameWindowRendering, GameWindowInventory,
         self.play_game_music()
         
     def on_cheat_next_level(self, event):
+        self.cheat_activation_count += 1
         self.level += 1
         self.map_payload = None
         self.show_pause_menu = False
@@ -1853,6 +2111,7 @@ class GameWindow(arcade.View, GameWindowRendering, GameWindowInventory,
         self.setup_game()
         
     def on_cheat_reveal_map(self, event):
+        self.cheat_activation_count += 1
         if self.dungeon_map:
             for y in range(self.dungeon_map.map_height):
                 for x in range(self.dungeon_map.map_width):
@@ -1870,6 +2129,7 @@ class GameWindow(arcade.View, GameWindowRendering, GameWindowInventory,
         # Обновление миникарты/рендера при необходимости, но следующий вызов отрисовки обработает это
         
     def on_cheat_kill_all(self, event):
+        self.cheat_activation_count += 1
         self.cheats_one_hit_kill = not getattr(self, 'cheats_one_hit_kill', False)
         self.setup_cheats_menu() # Обновление текста кнопки
 
@@ -1968,35 +2228,125 @@ class GameWindow(arcade.View, GameWindowRendering, GameWindowInventory,
             
             # Отрисовка взрывчатки и взрывов
             if hasattr(self, 'explosives_list') and self.explosives_list:
-                self.explosives_list.draw()
+                visible_explosives = arcade.SpriteList()
+                
+                # Culling bounds
+                cull_margin = self.tile_size * 2
+                cam_x, cam_y = self.camera.position
+                half_w = (self.window.width // 2) if self.window else 0
+                half_h = (self.window.height // 2) if self.window else 0
+                cull_left = cam_x - half_w - cull_margin
+                cull_right = cam_x + half_w + cull_margin
+                cull_bottom = cam_y - half_h - cull_margin
+                cull_top = cam_y + half_h + cull_margin
+
+                for explosive in self.explosives_list:
+                    # Frustum Culling
+                    if not (cull_left < explosive.center_x < cull_right and cull_bottom < explosive.center_y < cull_top):
+                        continue
+
+                    gx = int(explosive.center_x / self.tile_size)
+                    gy = int(explosive.center_y / self.tile_size)
+                    
+                    is_visible = False
+                    if self.visibility_grid and 0 <= gy < len(self.visibility_grid) and 0 <= gx < len(self.visibility_grid[0]):
+                         is_visible = self.visibility_grid[gy][gx]
+                    elif (gx, gy) in self.visible_tiles:
+                         is_visible = True
+                    
+                    # Raycasting
+                    if is_visible:
+                        is_visible = self._check_line_of_sight((gx, gy))
+
+                    if is_visible:
+                        visible_explosives.append(explosive)
+                
+                if len(visible_explosives) > 0:
+                    visible_explosives.draw()
+            
             if hasattr(self, 'explosions_list') and self.explosions_list:
-                self.explosions_list.draw()
+                # Отрисовка только видимых взрывов и частиц
+                visible_explosions = arcade.SpriteList()
+                for particle in self.explosions_list:
+                    # Frustum Culling
+                    if not (cull_left < particle.center_x < cull_right and cull_bottom < particle.center_y < cull_top):
+                        continue
+
+                    gx = int(particle.center_x / self.tile_size)
+                    gy = int(particle.center_y / self.tile_size)
+                    
+                    is_visible = (gx, gy) in self.visible_tiles
+                    
+                    # Raycasting
+                    if is_visible:
+                        is_visible = self._check_line_of_sight((gx, gy))
+                    
+                    if is_visible:
+                        visible_explosions.append(particle)
+                
+                if len(visible_explosions) > 0:
+                    visible_explosions.draw()
 
             # Отрисовка портала выхода (Красный квадрат)
             if self.dungeon_map and not self.dungeon_map.exit_door_closed and self.dungeon_map.exit_pos:
                 ex, ey = self.dungeon_map.exit_pos
-                # Используем draw_lrbt_rectangle_filled, так как draw_rectangle_filled может отсутствовать
-                arcade.draw_lrbt_rectangle_filled(
-                    ex * self.tile_size,
-                    (ex + 1) * self.tile_size,
-                    ey * self.tile_size,
-                    (ey + 1) * self.tile_size,
-                    arcade.color.RED
-                )
+                
+                # Visibility Check for Exit Portal
+                is_visible = (ex, ey) in self.visible_tiles
+                
+                # Raycasting
+                if is_visible:
+                     is_visible = self._check_line_of_sight((ex, ey))
+                
+                if is_visible:
+                    # Используем draw_lrbt_rectangle_filled, так как draw_rectangle_filled может отсутствовать
+                    arcade.draw_lrbt_rectangle_filled(
+                        ex * self.tile_size,
+                        (ex + 1) * self.tile_size,
+                        ey * self.tile_size,
+                        (ey + 1) * self.tile_size,
+                        arcade.color.RED
+                    )
             
-            # Отрисовка эффекта открытия прохода
-            if hasattr(self, 'passage_opening_effect') and self.passage_opening_effect and self.passage_opening_effect.get('active'):
-                self.draw_passage_opening_effect()
-
             # Отрисовка умирающих боссов
             if self.dying_bosses:
+                # Calculate culling bounds
+                tile_size = self.tile_size
+                cam_x, cam_y = self.camera.position
+                half_w = (self.window.width // 2) if self.window else 0
+                half_h = (self.window.height // 2) if self.window else 0
+                cull_margin = tile_size * 2
+                cull_left = cam_x - half_w - cull_margin
+                cull_right = cam_x + half_w + cull_margin
+                cull_bottom = cam_y - half_h - cull_margin
+                cull_top = cam_y + half_h + cull_margin
+
                 for boss in self.dying_bosses:
-                    if hasattr(boss, 'sprite_list') and boss.sprite_list:
-                         boss.sprite_list.draw()
-                    elif hasattr(boss, 'sprite'):
-                         boss.sprite.draw()
-                    if hasattr(boss, 'death_particles'):
-                         boss.death_particles.draw()
+                    # Frustum Culling
+                    bx, by = boss.draw_pos if hasattr(boss, 'draw_pos') else boss.pos
+                    if not (cull_left < bx < cull_right and cull_bottom < by < cull_top):
+                        continue
+                    
+                    # Visibility Check
+                    gx = int(bx / self.tile_size)
+                    gy = int(by / self.tile_size)
+                    is_visible = False
+                    if self.visibility_grid and 0 <= gy < len(self.visibility_grid) and 0 <= gx < len(self.visibility_grid[0]):
+                        is_visible = self.visibility_grid[gy][gx]
+                    elif (gx, gy) in self.visible_tiles:
+                        is_visible = True
+                    
+                    # Raycasting check if visible
+                    if is_visible:
+                         is_visible = self._check_line_of_sight((gx, gy))
+
+                    if is_visible:
+                        if hasattr(boss, 'sprite_list') and boss.sprite_list:
+                             boss.sprite_list.draw()
+                        elif hasattr(boss, 'sprite'):
+                             boss.sprite.draw()
+                        if hasattr(boss, 'death_particles'):
+                             boss.death_particles.draw()
 
         # Возвращаемся к UI камере для отрисовки интерфейса
         self.ui_camera.use()
@@ -2076,6 +2426,8 @@ class GameWindow(arcade.View, GameWindowRendering, GameWindowInventory,
 
             self.draw_player_health()
             self.draw_death_message()
+            self.draw_minimap()
+            self.draw_mage_hud()
 
         # Наложение вспышки экрана
         if self.screen_flash_timer > 0 and self.screen_flash_duration > 0:
@@ -2183,7 +2535,17 @@ class GameWindow(arcade.View, GameWindowRendering, GameWindowInventory,
             p['x'] += p['dx']
             p['y'] += p['dy']
             p['alpha'] -= 5
-            if p['alpha'] > 0:
+            
+            # Проверка видимости частицы
+            gx = int(p['x'] / self.tile_size)
+            gy = int(p['y'] / self.tile_size)
+            
+            is_visible = (gx, gy) in self.visible_tiles
+            
+            if is_visible:
+                 is_visible = self._check_line_of_sight((gx, gy))
+
+            if p['alpha'] > 0 and is_visible:
                 # Убеждаемся, что берем только RGB от объекта цвета (он может быть RGBA)
                 arcade.draw_circle_filled(p['x'], p['y'], p['size'], (*p['color'][:3], p['alpha']))
 
@@ -2192,6 +2554,9 @@ class GameWindow(arcade.View, GameWindowRendering, GameWindowInventory,
 
 
     def on_update(self, delta_time):
+        if delta_time > 0:
+            self.current_fps = int(1.0 / delta_time)
+
         if self.game_over:
              self.death_sequence_timer += delta_time
              if self.player:
@@ -2246,6 +2611,28 @@ class GameWindow(arcade.View, GameWindowRendering, GameWindowInventory,
                 else:
                     mage.update(delta_time)
         
+        # Обновление текста диалога мага, если он открыт
+        if self.mage_dialog and self.mage_dialog.is_visible and self.active_mage:
+             if self.active_mage.current_response:
+                 self.mage_dialog.set_text(self.active_mage.current_response)
+        
+        # Обновление dying_bosses (анимация смерти)
+        if hasattr(self, 'dying_bosses') and self.dying_bosses:
+            bosses_to_cleanup = []
+            for boss in self.dying_bosses:
+                boss.death_timer -= delta_time
+                if boss.sprite:
+                     boss.sprite.alpha = max(0, int(255 * (boss.death_timer / 2.0)))
+                     # Частицы или эффекты
+                     pass
+                
+                if boss.death_timer <= 0:
+                    bosses_to_cleanup.append(boss)
+            
+            for boss in bosses_to_cleanup:
+                self.dying_bosses.remove(boss)
+                # Окончательная очистка ресурсов босса, если нужно
+
         # Обновление боссов
         if self.bosses:
             for boss in self.bosses:
@@ -2398,11 +2785,25 @@ class GameWindow(arcade.View, GameWindowRendering, GameWindowInventory,
                         if self.player:
                             self.player.active_items["bomb"] += 1
                             picked_up = True
+                    
+                    elif icon_id == 999: # Rubin
+                        self.trigger_end_game()
+                        picked_up = True
                             
                     elif icon_id == 50: # Динамит
                         if self.player:
                             self.player.active_items["dynamite"] += 1
                             picked_up = True
+                    
+                    elif icon_id == 999: # Rubin - Final Item
+                        from windows.end_game_view import EndGameView
+                        stats = {
+                            "chests": self.chest_open_count,
+                            "cheats": self.cheat_activation_count
+                        }
+                        view = EndGameView(self, stats=stats)
+                        self.window.show_view(view)
+                        return
                             
                     if picked_up:
                          items_to_remove.append(item)
@@ -2536,7 +2937,7 @@ class GameWindow(arcade.View, GameWindowRendering, GameWindowInventory,
                         boss.sprite.alpha = alpha
                     
                     # Создание частиц
-                    if random.random() < 0.5:
+                    if False: # random.random() < 0.5:
                         bx, by = boss.draw_pos
                         p = ExplosionParticle(
                             bx, by, 
@@ -2695,6 +3096,9 @@ class GameWindow(arcade.View, GameWindowRendering, GameWindowInventory,
                         sp.remove_from_sprite_lists()
                         self.apply_inventory_effects()
 
+            # Обновление затухания видимости
+            self._update_fading(delta_time)
+
     def handle_player_death(self):
         """Обрабатывает смерть игрока"""
         try:
@@ -2715,8 +3119,29 @@ class GameWindow(arcade.View, GameWindowRendering, GameWindowInventory,
         
         self.game_over = True
         
-        game_over_view = GameOverView(self)
+        stats = {
+            "chests": self.chest_open_count,
+            "cheats": self.cheat_activation_count
+        }
+        game_over_view = GameOverView(self, stats=stats)
         self.window.show_view(game_over_view)
+
+    def trigger_end_game(self):
+        """Запускает финальную сцену игры"""
+        if self.end_game_active:
+            return
+            
+        self.end_game_active = True
+        
+        # Собираем статистику
+        stats = {
+            "chests_opened": self.chest_open_count,
+            "cheats_activated": self.cheat_activation_count
+        }
+        
+        # Переход к финальному виду
+        end_view = EndGameView(self, stats=stats)
+        self.window.show_view(end_view)
 
     def handle_boss_death(self, boss):
         """Обрабатывает смерть босса"""
@@ -2740,6 +3165,18 @@ class GameWindow(arcade.View, GameWindowRendering, GameWindowInventory,
             # Запускаем эффекты
             self.shake_camera(15.0, 1.0)
             self.start_screen_flash(0.5)
+            
+            # Level 40 Final Boss Drop (Rubin)
+            if self.level >= 40: # Boss level check
+                rubin_path = os.path.join("resources", "items", "rubin.png")
+                # Create drop
+                self.spawn_dropped_item(
+                    999, # Special ID for Rubin
+                    boss.draw_pos[0], boss.draw_pos[1],
+                    ignore_player_duration=1.0,
+                    velocity=(0, 0),
+                    custom_texture_path=rubin_path
+                )
             
             # Звуковой эффект
             try:
@@ -3202,12 +3639,54 @@ class GameWindow(arcade.View, GameWindowRendering, GameWindowInventory,
                     mx, my = mage.draw_pos
                     dist_sq = (mx - px) ** 2 + (my - py) ** 2
                     if dist_sq < (self.tile_size * 2) ** 2:
+                        # Запускаем взаимодействие (API call)
+                        mage.interact()
+                        self.active_mage = mage
+                        
                         # Показать диалог
                         if self.mage_dialog:
                             self.mage_dialog.show()
                         break
                         
-            # Также проверить сундуки или другие взаимодействия, если нужно
+            # Взаимодействие с сундуками
+            if self.chest_sprites:
+                # Ищем ближайший сундук
+                closest_chest = None
+                min_dist_sq = (self.tile_size * 1.5) ** 2
+                
+                for chest in self.chest_sprites:
+                    cx, cy = chest.center_x, chest.center_y
+                    dist_sq = (cx - px) ** 2 + (cy - py) ** 2
+                    
+                    if dist_sq < min_dist_sq:
+                        min_dist_sq = dist_sq
+                        closest_chest = chest
+                
+                if closest_chest:
+                    is_opened = closest_chest.properties.get("opened", False)
+                    if not is_opened:
+                        # Открываем сундук
+                        closest_chest.properties["opened"] = True
+                        self.chest_open_count += 1
+                        
+                        # Меняем текстуру (если есть открытая)
+                        try:
+                            open_tex = arcade.load_texture(os.path.join("resources", "map", "tile_0090.png"))
+                            closest_chest.texture = open_tex
+                        except Exception:
+                            pass
+                            
+                        # Выпадение лута (3-5 предметов)
+                        import random
+                        num_items = random.randint(3, 5)
+                        for _ in range(num_items):
+                            # Случайный предмет (кроме мусора)
+                            if self.valid_item_ids:
+                                item_id = random.choice(list(self.valid_item_ids))
+                                # Разброс позиции
+                                offset_x = random.randint(-20, 20)
+                                offset_y = random.randint(-20, 20)
+                                self.spawn_dropped_item(item_id, closest_chest.center_x + offset_x, closest_chest.center_y + offset_y)
             
         if key in (arcade.key.W, arcade.key.UP):
             self.move_hold["up"] = True
@@ -3486,6 +3965,8 @@ class GameWindow(arcade.View, GameWindowRendering, GameWindowInventory,
                     chest.properties = {}
                 if not chest.properties.get("opened") and chest.collides_with_point((world_x, world_y)):
                     chest.properties["opened"] = True
+                    self.chest_open_count += 1
+                    self.chest_open_count += 1
                     drop_ids = random.sample(
                         list(self.valid_item_ids), k=min(3, len(self.valid_item_ids)))
                     for iid in drop_ids:
@@ -3849,6 +4330,11 @@ class GameWindow(arcade.View, GameWindowRendering, GameWindowInventory,
                     if vis_row[x]:
                         continue
                     explored = exp_row[x] if exp_row else False
+                    
+                    # Если тайл исследован, не рисуем черный квадрат (оставляем затемненную текстуру)
+                    if explored:
+                        continue
+                        
                     screen_x = x * tile_size
                     fog_color = (0, 0, 0, 255)
                     arcade.draw_lrbt_rectangle_filled(
@@ -3915,59 +4401,144 @@ class GameWindow(arcade.View, GameWindowRendering, GameWindowInventory,
                                 pass
                             self.shake_camera(10.0, 0.5)
 
+        # Frustum Culling Limits (Pixels)
+        cull_margin = self.tile_size * 2
+        cull_left = cam_x - half_w - cull_margin
+        cull_right = cam_x + half_w + cull_margin
+        cull_bottom = cam_y - half_h - cull_margin
+        cull_top = cam_y + half_h + cull_margin
+
         for boss in self.bosses:
-            if not boss or not boss.is_alive() or not getattr(boss, "visible", True):
+            if not boss or not boss.is_alive():
                 continue
-            is_visible = id(boss) in self.visible_boss_ids if self.visible_boss_ids else False
-            if is_visible:
-                boss.draw()
-                cx = boss.sprite.center_x if hasattr(boss, "sprite") else boss.pos[0] * self.tile_size
-                cy = boss.sprite.center_y if hasattr(boss, "sprite") else boss.pos[1] * self.tile_size
+            
+            # Frustum Culling
+            if not (cull_left < boss.draw_pos[0] < cull_right and cull_bottom < boss.draw_pos[1] < cull_top):
+                continue
+
+            # Пропускаем полностью невидимых
+            if hasattr(boss, "sprite") and boss.sprite.alpha <= 0:
+                continue
+
+            boss.draw()
+            
+            # Отрисовка обводки (с учетом прозрачности)
+            if hasattr(boss, "sprite") and ProjectSettings.DEBUG_MODE:
+                cx = boss.sprite.center_x
+                cy = boss.sprite.center_y
                 r = self.tile_size * 0.7
-                arcade.draw_circle_outline(cx, cy, r, arcade.color.RED, 3)
+                alpha = boss.sprite.alpha
+                color = (255, 0, 0, alpha)
+                arcade.draw_circle_outline(cx, cy, r, color, 3)
 
         # Отрисовка NPC (Sage, Merchant, Mages)
         if getattr(self, "sage", None):
-            self.sage.draw()
+            # Culling & Alpha Check
+            if (cull_left < self.sage.draw_pos[0] < cull_right and cull_bottom < self.sage.draw_pos[1] < cull_top):
+                if hasattr(self.sage, "sprite") and self.sage.sprite.alpha > 0:
+                    self.sage.draw()
         
         if getattr(self, "merchant", None):
-            self.merchant.draw()
+            # Culling & Alpha Check
+            if (cull_left < self.merchant.draw_pos[0] < cull_right and cull_bottom < self.merchant.draw_pos[1] < cull_top):
+                if hasattr(self.merchant, "sprite") and self.merchant.sprite.alpha > 0:
+                    self.merchant.draw()
             
         if getattr(self, "mages", None):
             for mage in self.mages:
+                # Frustum Culling
+                if not (cull_left < mage.draw_pos[0] < cull_right and cull_bottom < mage.draw_pos[1] < cull_top):
+                    continue
+
+                # Alpha Check
+                if hasattr(mage, "sprite") and mage.sprite.alpha <= 0:
+                     continue
+
                 mage.draw()
+                if self.player:
+                    # Рисуем UI только если маг видим
+                    alpha = 255
+                    if hasattr(mage, "sprite"):
+                        alpha = mage.sprite.alpha
+                    
+                    if alpha > 0:
+                        mage.draw_ui(self.player.get_pixel_position())
 
         if self.visible_chests and self.player and self.dungeon_map:
             chests_to_draw = arcade.SpriteList()
             for chest in self.visible_chests:
-                chests_to_draw.append(chest)
+                # Frustum Culling for chests
+                if cull_left < chest.center_x < cull_right and cull_bottom < chest.center_y < cull_top:
+                    chests_to_draw.append(chest)
+            
             if len(chests_to_draw) > 0:
                 chests_to_draw.draw()
-                for chest in chests_to_draw:
-                    cx = chest.center_x
-                    cy = chest.center_y
-                    w = self.tile_size * 0.9
-                    h = self.tile_size * 0.9
-                    left = cx - w / 2
-                    right = cx + w / 2
-                    bottom = cy - h / 2
-                    top = cy + h / 2
-                    arcade.draw_lrbt_rectangle_outline(left, right, bottom, top, arcade.color.GOLD, 2)
+                if ProjectSettings.DEBUG_MODE:
+                    for chest in chests_to_draw:
+                        cx = chest.center_x
+                        cy = chest.center_y
+                        w = self.tile_size * 0.9
+                        h = self.tile_size * 0.9
+                        left = cx - w / 2
+                        right = cx + w / 2
+                        bottom = cy - h / 2
+                        top = cy + h / 2
+                        arcade.draw_lrbt_rectangle_outline(left, right, bottom, top, arcade.color.GOLD, 2)
 
-        if self.visible_dropped_items and self.player and self.dungeon_map:
+        if self.dropped_item_sprites and self.player and self.dungeon_map:
+            # Отрисовка предметов с проверкой видимости
             items_to_draw = arcade.SpriteList()
-            for item in self.visible_dropped_items:
-                items_to_draw.append(item)
+            for item in self.dropped_item_sprites:
+                # Frustum Culling
+                if not (cull_left < item.center_x < cull_right and cull_bottom < item.center_y < cull_top):
+                    continue
+
+                # Visibility Check (Fog of War)
+                gx = int(item.center_x / self.tile_size)
+                gy = int(item.center_y / self.tile_size)
+                
+                is_visible = False
+                if self.visibility_grid and 0 <= gy < len(self.visibility_grid) and 0 <= gx < len(self.visibility_grid[0]):
+                    is_visible = self.visibility_grid[gy][gx]
+                elif (gx, gy) in self.visible_tiles:
+                    is_visible = True
+                
+                if is_visible:
+                    items_to_draw.append(item)
+            
             if len(items_to_draw) > 0:
                 items_to_draw.draw()
-                for item in items_to_draw:
-                    cx = item.center_x
-                    cy = item.center_y
-                    r = self.tile_size * 0.45
-                    arcade.draw_circle_outline(cx, cy, r, arcade.color.LIGHT_GREEN, 2)
+            
+                # Отрисовка обводки для видимых
+                if ProjectSettings.DEBUG_MODE:
+                    for item in items_to_draw:
+                        if item.alpha > 0:
+                            cx = item.center_x
+                            cy = item.center_y
+                            r = self.tile_size * 0.45
+                            color = (144, 238, 144, item.alpha)
+                            arcade.draw_circle_outline(cx, cy, r, color, 2)
 
         if self.ambient_sprites:
-            self.ambient_sprites.draw()
+            # Frustum Culling и проверка видимости для эмбиента
+            visible_ambient = arcade.SpriteList()
+            for sprite in self.ambient_sprites:
+                if cull_left < sprite.center_x < cull_right and cull_bottom < sprite.center_y < cull_top:
+                     # Visibility Check
+                    gx = int(sprite.center_x / self.tile_size)
+                    gy = int(sprite.center_y / self.tile_size)
+                    
+                    is_visible = False
+                    if self.visibility_grid and 0 <= gy < len(self.visibility_grid) and 0 <= gx < len(self.visibility_grid[0]):
+                        is_visible = self.visibility_grid[gy][gx]
+                    elif (gx, gy) in self.visible_tiles:
+                        is_visible = True
+                        
+                    if is_visible and sprite.alpha > 0:
+                        visible_ambient.append(sprite)
+            
+            if len(visible_ambient) > 0:
+                visible_ambient.draw()
 
         self.draw_minimap()
 
@@ -4071,6 +4642,17 @@ class GameWindow(arcade.View, GameWindowRendering, GameWindowInventory,
                 ty = y0 + slot_size + 18
                 arcade.draw_text(desc, tx, ty, arcade.color.WHITE,
                                  14, anchor_x="center", anchor_y="bottom")
+
+        # Draw FPS
+        arcade.draw_text(
+            f"FPS: {self.current_fps}",
+            self.window.width - 10,
+            self.window.height - 10,
+            arcade.color.YELLOW,
+            12,
+            anchor_x="right",
+            anchor_y="top"
+        )
 
     def draw_player_health_above(self):
         """Отрисовка полоски здоровья игрока над игроком"""
