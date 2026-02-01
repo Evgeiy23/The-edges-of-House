@@ -52,11 +52,10 @@ usage: main.py [-h] [--wc] [--wom] [--debug]
 The Edges of House Game
 
 options:
-  -h, --help            show this help message and exit
-  --wc, --with-cheats   Enable cheats
+  -h, --help            помощь
+  --wc, --with-cheats   Включить читы
   --wom, --without-music
-                        Disable music
-  --debug               Enable debug mode (show outlines)
+                        Выключить музыку
 ```
 
 ## Управление
