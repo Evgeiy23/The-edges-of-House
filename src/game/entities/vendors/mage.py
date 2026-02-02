@@ -387,7 +387,7 @@ class MageNPC(BaseVendor):
         full_prompt = f"{MAG_PROMPT}\n\nТекущая ситуация или категория шутки: {category}.\nТвой комментарий:"
         
         payload = {
-            "model": "llama3",
+            "model": "llama3.1",
             "prompt": full_prompt,
             "stream": False
         }

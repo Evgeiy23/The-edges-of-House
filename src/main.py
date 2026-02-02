@@ -11,7 +11,7 @@ import warnings
 # Подавить все предупреждения, включая PerformanceWarning от Arcade
 warnings.filterwarnings("ignore")
 from windows.start_window import StartWindow
-from project import ProjectSettings
+from project import ProjectSettings, BASE_PATH
 from utils import get_config_path
 
 
@@ -61,10 +61,10 @@ def load_window_settings():
 
 
 def main():
-    parser = argparse.ArgumentParser(description="The Edges of House Game")
-    parser.add_argument("--wc", "--with-cheats", action="store_true", help="Enable cheats")
-    parser.add_argument("--wom", "--without-music", action="store_true", help="Disable music")
-    parser.add_argument("--debug", action="store_true", help="Enable debug mode (show outlines)")
+    parser = argparse.ArgumentParser(description="Игра The Edges of House")
+    parser.add_argument("--wc", "--with-cheats", action="store_true", help="Включить читы")
+    parser.add_argument("--wom", "--without-music", action="store_true", help="Отключить музыку")
+    parser.add_argument("--debug", action="store_true", help="Включить режим отладки (показать контуры)")
     args = parser.parse_args()
 
     ProjectSettings.CHEATS_ENABLED = args.wc
@@ -83,6 +83,14 @@ def main():
         fullscreen=fullscreen
     )
 
+    icon_path = os.path.join(BASE_PATH, "resources", "logo.ico")
+    if os.path.exists(icon_path):
+        try:
+            icon = pyglet.image.load(icon_path)
+            window.set_icon(icon)
+        except Exception:
+            pass
+
     if window_mode == ProjectSettings.Settings.WINDOW_MODE_WINDOWED:
         try:
             display = pyglet.display.get_display()
@@ -97,6 +105,12 @@ def main():
     window.show_view(start_view)
     arcade.run()
 
-
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        input("Press Enter to exit...")
+
+

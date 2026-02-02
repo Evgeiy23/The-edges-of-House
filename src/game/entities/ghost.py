@@ -153,7 +153,7 @@ class Ghost(Follower):
             #      self.current_frame_index = (self.current_frame_index + 1) % len(self.current_animation_frames)
             #      self.sprite.texture = self.current_animation_frames[self.current_frame_index]
 
-        # Handle attack cooldown
+        # Обработка перезарядки атаки
         if not self.can_attack:
             self.attack_timer += delta_time
             if self.attack_timer >= self.attack_cooldown:

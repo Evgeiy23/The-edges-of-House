@@ -230,18 +230,18 @@ class GameWindow(arcade.View, GameWindowRendering, GameWindowInventory,
         self.game_over = False
         self.death_sequence_timer = 0.0
 
-        # Statistics
+        # Статистика
         self.chest_open_count = 0
         self.cheat_activation_count = 0
 
-        # End Game Sequence
+        # Последовательность окончания игры
         self.end_game_active = False
-        self.end_game_phase = 0 # 0: None, 1: Video, 2: End Screen
+        self.end_game_phase = 0 # 0: Нет, 1: Видео, 2: Экран окончания
         self.end_video_player = None
         self.end_video_texture = None
         self.end_video_path = os.path.join("resources", "videos", "theend.mp4")
         self.end_music_player = None
-        self.end_stats_visible = False # Toggle for stats on end screen
+        self.end_stats_visible = False # Переключатель статистики на экране окончания
 
     def load_settings(self):
         config_file = get_config_path()

@@ -8,6 +8,8 @@ dependencies = [
     "arcade[full]>=2.6.0",
     "edge-tts>=7.2.7",
     "groq>=1.0.0",
+    "nuitka>=2.8.10",
     "openai>=2.16.0",
+    "pyinstaller>=6.18.0",
     "python-dotenv>=1.2.1",
 ]

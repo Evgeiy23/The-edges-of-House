@@ -85,7 +85,7 @@ class Boss:
         base_path = f"resources/character_enemies/{self.boss_type}"
         directions = ['Front', 'Back', 'Left', 'Right']
         actions = {
-            'idle': 'Running',  # Используем Running как idle
+            'idle': 'Running',  # Используем Running как ожидание (idle)
             'attacking': 'Attacking',
             'dying': 'Dying'
         }

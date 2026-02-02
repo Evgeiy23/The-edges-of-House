@@ -1,5 +1,11 @@
 import arcade
 import os
+import sys
+
+if getattr(sys, 'frozen', False):
+    BASE_PATH = os.path.dirname(sys.executable)
+else:
+    BASE_PATH = os.path.dirname(os.path.dirname(__file__))
 
 
 class ProjectSettings:
@@ -13,7 +19,7 @@ class ProjectSettings:
     DEBUG_MODE = False
 
     class StartWindow:
-        BACKGROUND_IMAGE = "resources/background.jpg"
+        BACKGROUND_IMAGE = os.path.join(BASE_PATH, "resources", "background.jpg")
 
         TITLE_TEXT = "THE EDGES OF HOUSE"
         TITLE_FONT_SIZE = 48
@@ -84,8 +90,8 @@ class ProjectSettings:
 
         DEFAULT_RESOLUTION_INDEX = 0
         DEFAULT_WINDOW_MODE = WINDOW_MODE_FULLSCREEN
-        DEFAULT_SOUNDS_FOLDER = os.path.join(os.path.dirname(
-            os.path.dirname(__file__)), "music")
+        
+        DEFAULT_SOUNDS_FOLDER = os.path.join(BASE_PATH, "music")
         DEFAULT_SOUND_VOLUME = 1.0
         DEFAULT_MUSIC_VOLUME = 1.0
         DEFAULT_FRAME_LIMIT = "240"

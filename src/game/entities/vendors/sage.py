@@ -99,7 +99,7 @@ class SageNPC(BaseVendor):
             prompt = "Ты мудрый старец в подземелье. Дай короткий совет герою (максимум 2 предложения)."
             
             completion = client.chat.completions.create(
-                model="llama3-8b-8192",
+                model="llama-3.1-8b-instant",
                 messages=[{"role": "user", "content": prompt}],
                 temperature=1,
                 max_completion_tokens=100,

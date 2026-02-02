@@ -224,7 +224,7 @@ class GameWindowRendering:
             if len(chests_to_draw) > 0:
                 chests_to_draw.draw()
 
-        # Define culling bounds
+        # Определение границ отсечения
         cull_margin = self.tile_size * 2
         cull_left = cam_x - half_w - cull_margin
         cull_right = cam_x + half_w + cull_margin
@@ -240,13 +240,13 @@ class GameWindowRendering:
                 if not (cull_left < item.center_x < cull_right and cull_bottom < item.center_y < cull_top):
                     continue
 
-                # Visibility Check (Fog of War)
+                # Проверка видимости (Туман войны)
                 gx = int(item.center_x / self.tile_size)
                 gy = int(item.center_y / self.tile_size)
                 
                 is_visible = (gx, gy) in self.visible_tiles
                 
-                # Raycasting for Items
+                # Raycasting для предметов
                 if is_visible and hasattr(self, '_check_line_of_sight'):
                      is_visible = self._check_line_of_sight((gx, gy))
 
@@ -271,13 +271,13 @@ class GameWindowRendering:
             visible_ambient = arcade.SpriteList()
             for sprite in self.ambient_sprites:
                 if cull_left < sprite.center_x < cull_right and cull_bottom < sprite.center_y < cull_top:
-                     # Visibility Check
+                     # Проверка видимости
                     gx = int(sprite.center_x / self.tile_size)
                     gy = int(sprite.center_y / self.tile_size)
                     
                     is_visible = (gx, gy) in self.visible_tiles
 
-                    # Raycasting for Ambient
+                    # Raycasting для окружения
                     if is_visible and hasattr(self, '_check_line_of_sight'):
                          is_visible = self._check_line_of_sight((gx, gy))
                         
@@ -292,7 +292,7 @@ class GameWindowRendering:
             sage_x = int(self.sage.pos[0])
             sage_y = int(self.sage.pos[1])
             
-            # Frustum Culling for Sage
+            # Отсечение невидимых объектов для Мудреца
             sx, sy = self.sage.pos
             sage_screen_x = sx * self.tile_size
             sage_screen_y = sy * self.tile_size
@@ -308,7 +308,7 @@ class GameWindowRendering:
                     if dist_sq > safe_radius * safe_radius:
                         is_visible = False
                 
-                # Raycasting for Sage
+                # Raycasting для Мудреца
                 if is_visible and hasattr(self, '_check_line_of_sight'):
                      is_visible = self._check_line_of_sight((sage_x, sage_y))
                     
@@ -323,7 +323,7 @@ class GameWindowRendering:
                 mage_x = int(mage.pos[0])
                 mage_y = int(mage.pos[1])
                 
-                # Frustum Culling for Mage
+                # Отсечение невидимых объектов для Мага
                 mx, my = mage.pos
                 mage_screen_x = mx * self.tile_size
                 mage_screen_y = my * self.tile_size
@@ -341,13 +341,13 @@ class GameWindowRendering:
                     if dist_sq > safe_radius * safe_radius:
                         is_visible = False
                 
-                # Raycasting for Mage
+                # Raycasting для Мага
                 if is_visible and hasattr(self, '_check_line_of_sight'):
                      is_visible = self._check_line_of_sight((mage_x, mage_y))
                     
                 if is_visible:
                     mage.draw()
-                    # Mage UI (floating text) is now optional, as we have HUD
+                    # UI Мага (плавающий текст) теперь опционален, так как у нас есть HUD
                     # if self.player:
                     #     mage.draw_ui(self.player.draw_pos)
 
@@ -361,17 +361,17 @@ class GameWindowRendering:
                     ghost_x = int(ghost.pos[0])
                     ghost_y = int(ghost.pos[1])
                     
-                    # Frustum Culling for Ghost
+                    # Отсечение невидимых объектов для Призрака
                     gx, gy = ghost.pos
                     ghost_screen_x = gx * self.tile_size
                     ghost_screen_y = gy * self.tile_size
                     if not (cull_left < ghost_screen_x < cull_right and cull_bottom < ghost_screen_y < cull_top):
                         continue
 
-                    # Strict Visibility Check (Fog of War)
+                    # Строгая проверка видимости (Туман войны)
                     is_visible = (ghost_x, ghost_y) in self.visible_tiles
                     
-                    # Raycasting check (double check)
+                    # Проверка Raycasting (двойная проверка)
                     if is_visible and hasattr(self, '_check_line_of_sight'):
                          is_visible = self._check_line_of_sight((ghost_x, ghost_y))
                     
@@ -394,14 +394,14 @@ class GameWindowRendering:
             merchant_grid_x = int(self.merchant.pos[0])
             merchant_grid_y = int(self.merchant.pos[1])
             
-            # Frustum Culling for Merchant
+            # Отсечение невидимых объектов для Торговца
             merch_x, merch_y = self.merchant.pos
             merch_screen_x = merch_x * self.tile_size
             merch_screen_y = merch_y * self.tile_size
             if (cull_left < merch_screen_x < cull_right and cull_bottom < merch_screen_y < cull_top):
                 is_visible = (merchant_grid_x, merchant_grid_y) in self.visible_tiles
                 
-                # Raycasting for Merchant
+                # Raycasting для Торговца
                 if is_visible and hasattr(self, '_check_line_of_sight'):
                      is_visible = self._check_line_of_sight((merchant_grid_x, merchant_grid_y))
 
@@ -412,7 +412,7 @@ class GameWindowRendering:
 
         self.draw_passage_opening_effect()
 
-        # UI elements should be drawn in on_draw to ensure correct camera usage and layering
+        # Элементы UI должны отрисовываться в on_draw для обеспечения правильного использования камеры и наслоения
         # self.draw_minimap()
         # self.draw_player_health()
         # self.draw_death_message()

@@ -52,7 +52,7 @@ def _generate_three_room_layout(map_width, map_height, cfg, spawn_corner=None, s
     x3_min = map_width // 3
     x3_max = 2 * map_width // 3
     
-    # Ensure room fits horizontally
+    # Убедиться, что комната помещается по горизонтали
     if x3_max + w3 >= map_width - 1:
         x3_max = map_width - w3 - 2
     if x3_min > x3_max:
@@ -63,7 +63,7 @@ def _generate_three_room_layout(map_width, map_height, cfg, spawn_corner=None, s
     y3_min = map_height // 3
     y3_max = 2 * map_height // 3
     
-    # Ensure room fits vertically
+    # Убедиться, что комната помещается по вертикали
     if y3_max + h3 >= map_height - 1:
         y3_max = map_height - h3 - 2
     if y3_min > y3_max:

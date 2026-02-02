@@ -38,10 +38,10 @@
 
 ## Сборка
 
-Чтобы собрать исполняемый файл игры, используйте `run.spec` с помощью PyInstaller:
+Чтобы собрать исполняемый файл игры, используйте `The Edges Of House.spec` с помощью PyInstaller:
 
 ```bash
-pyinstaller run.spec
+pyinstaller The Edges Of House.spec
 ```
 
 ## Аргументы запуска (-h)
