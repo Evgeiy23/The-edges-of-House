@@ -1,4 +1,3 @@
 arcade[full]
 edge-tts
-groq
 python-dotenv
